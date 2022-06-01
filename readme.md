@@ -18,7 +18,8 @@ cargo run --package kscript_rust --bin kscript_rust
 ```shell
 
 // Print 
-print "hello world"
+print "hello world";  // "hello world"
+print 100 + 200;      // "300"
 
 // Expression
 20 + 20 + 30 * 2; // Evaluates to 100
