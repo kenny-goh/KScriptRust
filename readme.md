@@ -1,4 +1,4 @@
-KScriptRust is a single pass interpreter + virtual machine written in Rust.
+KScriptRust is a single pass compiler + virtual machine written in Rust.
 
 Why? Opportunity for me to improve my skills in Rust and also learn about writing a virtual machine.
 
