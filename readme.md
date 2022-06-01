@@ -7,11 +7,14 @@ Install rust on your machine. Please refer to  https://www.rust-lang.org/
 
 ## Usage
 ```shell
-# Run example fibonacci script
-cargo run --package kscript_rust --bin kscript_rust ./script/fib.ks
+# Build Kscript 
+cargo build --release # This will generate kscript binary in target/release
 
-# Run interactive mode
+# Build and run kscript in interative mode
 cargo run --package kscript_rust --bin kscript_rust 
+
+# Build and run kscript with fibonacci script
+cargo run --package kscript_rust --bin kscript_rust ./script/fib.ks
 ```
 
 ## Example kscript program
