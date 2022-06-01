@@ -66,13 +66,15 @@ For more examples, please refer to script subdirectory
 - Closure (Currently work in progress)
 - Classes
 - GC (Partially working, will need to add for classes)
+- let operator (immutable variable)
 - += operator
 - ++ operator
 - lambda function
 - Outputting compiled machine code as [filename].bin
-- IO (using Tokio crate) 
+- Non-blocking IO (using Tokio crate) 
 - Sockets
-- Async
+- Runtime statistics / profiling 
+- Parallel KScript (async) - Need research
 
 ## Contributing
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
