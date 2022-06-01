@@ -76,8 +76,5 @@ For more examples, please refer to script subdirectory
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
 Please make sure to update tests as appropriate.
 
-## Credits
-- The code for the interpreter is mostly based on Bob Nystrom's book, 'Crafting interpreters'. I added my own flavor on top of it such as having lambda functions, lists, map, quantors and so on.
-
 ## License
 [MIT](https://choosealicense.com/licenses/mit/)# kscript
