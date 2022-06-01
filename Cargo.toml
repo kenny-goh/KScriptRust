@@ -1,0 +1,18 @@
+[package]
+name = "kscript_rust"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+substring = "1.4.5"
+colored = "2.0.0"
+profiling = "1.0.5"
+serial_test = "0.6.0"
+
+[profile.bench]
+debug = true
+
+[profile.release]
+debug = true
