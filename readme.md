@@ -26,6 +26,7 @@ print 100 + 200;      // "300"
 
 // Variable
 var foo = "bar";
+print foo;        // "bar"
 
 // For loop
 for (var i = 0; i < 10; i = i + 1) {
