@@ -1,13 +1,18 @@
 use std::collections::HashMap;
 use std::{fmt, mem};
+use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefMut;
+use std::ops::Deref;
 
 use crate::function::{Function};
 use crate::{Heap, Object, Opcode, Value};
+use crate::closure::Upvalue;
 use crate::token::{Token, TokenType};
 use crate::debug::disassemble_chunk;
 
-static DEBUG_MACHINE_CODE: bool = false;
+static DEBUG_MACHINE_CODE: bool = true;
+
+static MAX_UPVALUE_COUNT: usize = 256;
 
 #[derive(Copy, Clone)]
 pub enum FunctionType {
@@ -64,7 +69,10 @@ struct Compiler {
     scope_depth: isize,
     /// Keep track of local variables
     locals: Vec<Local>,
+    /// Keep track of upvalues
+    upvalues: Vec<Upvalue>
 }
+
 
 impl Compiler {
     pub fn new(enclosing: i16,
@@ -76,12 +84,18 @@ impl Compiler {
             function_type,
             scope_depth: 0,
             locals: vec![Local::from("".to_string(), 0)],
+            upvalues: vec![]
         }
     }
 
     pub fn add_local(&mut self, name: String, depth: isize) {
         self.locals.push(Local::from(name, depth));
     }
+
+    pub fn add_upvalues(&mut self, index: usize, is_local: bool) {
+        self.upvalues.push(Upvalue::new(index, is_local));
+    }
+
 }
 
 #[derive(Copy, Clone)]
@@ -203,7 +217,7 @@ impl Parser {
 
         let main_func_idx = self.heap.alloc_function(function);
 
-        let compiler = Compiler::new(self.curr_compiler_index, main_func_idx, FunctionType::Main);
+        let compiler = Compiler::new(-1, main_func_idx, FunctionType::Main);
         self.curr_compiler_index = self.compilers.len() as i16;
         self.compilers.push(compiler);
 
@@ -242,8 +256,8 @@ impl Parser {
     fn end_compiler(&mut self) -> usize {
         self.emit_return();
 
-        let fn_hash = self.compilers[self.curr_compiler_index as usize].function_idx;
-        let chunk = self.heap.get_function(fn_hash).chunk.clone();
+        let func_index = self.compilers[self.curr_compiler_index as usize].function_idx;
+        let chunk = self.heap.get_mut_function(func_index).chunk.clone();
 
         if !self.had_error {
             if DEBUG_MACHINE_CODE {
@@ -254,7 +268,7 @@ impl Parser {
         let enclosing = self.compilers[self.curr_compiler_index as usize].enclosing;
         self.curr_compiler_index = enclosing;
 
-        return fn_hash;
+        return func_index;
     }
 
     /// Check if the current token match the given token type
@@ -419,8 +433,8 @@ impl Parser {
             FunctionType::Main => "Main".to_string(),
             FunctionType::Function => self.previous().lexeme.to_string(),
         };
-        let function = Function::new(function_name, self.function_arity);
 
+        let function = Function::new(function_name, self.function_arity);
         let func_idx = self.heap.alloc_function(function);
 
         // Start of new compiler
@@ -448,11 +462,27 @@ impl Parser {
         self.consume(TokenType::LeftBrace, "Expect '{' before function body");
         self.block();
 
-        let fn_hash = self.end_compiler();
+        self.end_compiler();
 
-        let constant = self.make_constant(Value::Obj(Object::FunctionIndex(fn_hash)));
+        let constant = self.make_constant(Value::Obj(Object::FunctionIndex(func_idx)));
         // self.emit_bytes(Opcode::Constant.byte(), constant );
         self.emit_bytes(Opcode::Closure.byte(), constant);
+
+        let mut upvalue_count = 0;
+        if (self.heap.functions[func_idx].borrow().upvalue_count > 0) {
+            upvalue_count = self.heap.functions[func_idx].borrow().upvalue_count;
+        }
+        for i in 0..upvalue_count {
+            let compiler_idx = self.compilers.len()-1;
+            let is_local = self.compilers[compiler_idx].upvalues[i].is_local;
+            let upvalue_index_byte = self.compilers[compiler_idx].upvalues[i].index as u8;
+            if is_local {
+                self.emit_byte(1);
+            } else {
+                self.emit_byte(0);
+            }
+            self.emit_byte(upvalue_index_byte);
+        }
     }
 
     fn var_declaration(&mut self) {
@@ -864,14 +894,21 @@ impl Parser {
         let mut set_op: u8 = Opcode::SetGlobal.byte();
         let mut get_op: u8 = Opcode::GetGlobal.byte();
 
-        let current = self.current_compiler().clone();
-        let mut arg = self.resolve_local(current, &token);
+        let current_compiler_index = self.curr_compiler_index as usize;
 
+        let mut arg = self.resolve_local(current_compiler_index, &token);
         if arg != -1 {
             set_op = Opcode::SetLocal.byte();
             get_op = Opcode::GetLocal.byte();
         } else {
-            arg = self.identifier_constant(&token.lexeme) as isize;
+            arg = self.resolve_upvalue(current_compiler_index, &token);
+            if (arg != -1) {
+                set_op = Opcode::SetUpvalue.byte();
+                get_op = Opcode::GetUpvalue.byte();
+            }
+            else {
+                arg = self.identifier_constant(&token.lexeme) as isize;
+            }
         }
 
         if can_assign && self.match_token_type(TokenType::Equal) {
@@ -882,7 +919,8 @@ impl Parser {
         }
     }
 
-    fn resolve_local(&mut self, compiler: Compiler, token: &Token) -> isize {
+    fn resolve_local(&mut self, compiler_idx: usize, token: &Token) -> isize {
+        let compiler = &self.compilers[compiler_idx];
         for i in (0..compiler.locals.len()).rev() {
             let local = &compiler.locals[i];
             if token.lexeme == local.name {
@@ -894,4 +932,45 @@ impl Parser {
         }
         return -1;
     }
+
+    fn add_upvalue(&mut self, compiler_idx:usize, index: usize, is_local: bool)->usize {
+        let function_idx = self.compilers[compiler_idx].function_idx;
+        let upvalue_count = self.heap.get_mut_function(function_idx).upvalue_count;
+        for i in 0..upvalue_count {
+            let upvalue_is_local = self.compilers[compiler_idx].upvalues[i].is_local;
+            let upvalue_index = self.compilers[compiler_idx].upvalues[i].index;
+            if upvalue_index == index && upvalue_is_local == is_local {
+                return i;
+            }
+        }
+        if upvalue_count == MAX_UPVALUE_COUNT {
+            self.error("Too many closures in function.");
+            return 0;
+        }
+        self.heap.get_mut_function(function_idx).upvalue_count+= 1;
+        self.compilers[compiler_idx].add_upvalues(index, is_local);
+        return self.heap.get_mut_function(function_idx).upvalue_count;
+    }
+
+    fn resolve_upvalue(&mut self, compiler_idx: usize,  name: &Token)->isize {
+        let enclosing = self.compilers[compiler_idx].enclosing as isize;
+        if enclosing == -1 {
+            return -1;
+        }
+
+        let local = self.resolve_local(enclosing as usize, name);
+        if local != -1 {
+            return self.add_upvalue(compiler_idx, local as usize, true) as isize;
+        }
+
+        let upvalue = self.resolve_upvalue(enclosing as usize, name);
+        if upvalue != -1 {
+            return self.add_upvalue(compiler_idx, upvalue as usize, false) as isize;
+        }
+
+        return -1;
+    }
+
+
 }
+

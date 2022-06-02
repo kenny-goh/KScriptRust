@@ -114,6 +114,8 @@ impl Scanner {
             'o' => {
                 if self._match(&'r') {
                     self.add_token(&TokenType::Or);
+                } else if self.is_alpha(c) {
+                    self.identifier();
                 }
             }
             _ => {

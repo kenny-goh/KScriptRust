@@ -141,7 +141,7 @@ impl Heap {
     }
 
     /// Mutator access function via index number
-    pub fn get_function(&self, idx: usize) -> RefMut<'_, Function> { return self.functions[idx].borrow_mut() }
+    pub fn get_mut_function(&self, idx: usize) -> RefMut<'_, Function> { return self.functions[idx].borrow_mut() }
 
     ///
     pub fn get_nativefn(&self, idx: usize)->&NativeFn { return self.native_fns[idx].borrow() }

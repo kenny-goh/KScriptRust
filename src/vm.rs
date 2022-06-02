@@ -1,9 +1,12 @@
+use std::borrow::{Borrow, BorrowMut};
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use colored::Colorize;
 
 use crate::{Heap, Object, Opcode, Value};
 use crate::callframe::CallFrame;
-use crate::closure::Closure;
+use crate::closure::{Closure, ObjUpvalue};
 use crate::function::Function;
 use crate::nativefn::{append_file_native, clock_native, NativeFn, NativeValue, str_native, write_file_native};
 
@@ -13,7 +16,7 @@ const DEBUG: bool = true;
 
 #[cfg(debug_assertions)]
 macro_rules! log {
-    ($( $args:expr ),*) => { /*println!( $( $args ),* );*/ }
+    ($( $args:expr ),*) => { /*println!( $( $args ),* ); */ }
 }
 
 // Non-debug version
@@ -84,7 +87,7 @@ impl VM {
     pub fn execute(&mut self) -> RunResult {
         let fun_main_idx = 0;  // Main function is always 0
         self.push(Value::object(Object::function(fun_main_idx)));
-        let closure_idx = self.new_closure(fun_main_idx);
+        let closure_idx = self.new_closure(fun_main_idx, 0);
         self.pop(); // Pop the function
         self.push(Value::Obj(Object::ClosureIndex(closure_idx)));
         self.call(closure_idx,0);
@@ -195,6 +198,19 @@ impl VM {
                     let slot = self.read_byte() as usize;
                     let slot_offset = self.callstack.last().unwrap().slot_offset;
                     self.stack[slot + slot_offset] = *self.peek(0);
+                }
+                Opcode::GetUpvalue => {
+                    // fixme: to test
+                    let slot = self.read_byte()-1;
+                    let closure_idx = self.callstack.last().unwrap().closure_idx;
+                    let location = self.heap.get_mut_closure(closure_idx).upvalues[slot as usize].as_ref().borrow_mut().resolve_value(&self);
+                    self.push(location);
+                }
+                Opcode::SetUpvalue => {
+                    // fixme: to test
+                    let slot = self.read_byte();
+                    let closure_idx = self.callstack.last().unwrap().closure_idx;
+                    self.heap.get_mut_closure(closure_idx).upvalues[slot as usize].as_ref().borrow_mut().location = Some((self.stack.len()-1) as usize);
                 }
                 Opcode::Equal => {
                     log!("OP EQUAL");
@@ -334,9 +350,28 @@ impl VM {
                     }
                 }
                 Opcode::Closure => {
+                    log!("OP CLOSURE");
                     let func_idx = self.read_constant().as_function_index();
-                    let closure_idx = self.new_closure(func_idx);
+                    let upvalue_count = self.heap.get_mut_function(func_idx).upvalue_count;
+                    let closure_idx = self.new_closure(func_idx, upvalue_count);
                     self.push(Value::object(Object::ClosureIndex(closure_idx)));
+
+                    let upvalues_count = self.heap.get_mut_closure(closure_idx).upvalues.len();
+                    for i in 0..upvalues_count {
+                        let is_local = self.read_byte();
+                        let index = self.read_byte();
+
+                        let curr_frame = self.callstack.last().unwrap();
+                        if is_local == 1u8 {
+                            self.heap.get_mut_closure(closure_idx).upvalues[i] =
+                                (Rc::new((RefCell::new(
+                                    ObjUpvalue::new(curr_frame.slot_offset + index as usize)))));
+                        } else {
+                            let curr_frame_closure_idx = curr_frame.closure_idx;
+                            self.heap.get_mut_closure(closure_idx).upvalues[i] = Rc::clone(
+                                &self.heap.get_mut_closure(curr_frame_closure_idx).upvalues[index as usize]);
+                        }
+                    }
                 }
                 Opcode::Return => {
                     log!("OP RETURN");
@@ -373,8 +408,9 @@ impl VM {
 
     }
 
-    fn new_closure(&mut self, func_idx: usize) -> usize {
-        let closure = Closure::new(func_idx);
+    fn new_closure(&mut self, func_idx: usize, upvalue_count: usize) -> usize {
+        let mut closure = Closure::new(func_idx);
+        closure.init_upvalues(upvalue_count);
         let closure_idx = self.heap.alloc_closure(closure);
         closure_idx
     }
@@ -547,7 +583,7 @@ impl VM {
     fn call(&mut self,
             closure_idx: usize,
             arg_count: u8) ->bool {
-        let arity = self.heap.get_function(self.heap.get_mut_closure(closure_idx).func_idx).arity;
+        let arity = self.heap.get_mut_function(self.heap.get_mut_closure(closure_idx).func_idx).arity;
         if arg_count as usize != arity {
             let message = format!("Expected {} arguments but got {}", arity, arg_count);
             self.runtime_error(&message);

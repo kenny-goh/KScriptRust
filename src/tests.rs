@@ -366,6 +366,26 @@ fn test_stringify() {
     }
 }
 
+#[test]
+#[serial]
+fn test_closure() {
+    let code = r#"
+        fun outer() {
+          var x = "outside";
+          fun inner() {
+            return x;
+          }
+          return inner();
+        }
+        var _result = outer();
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("outside", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
 
 // todo: garbage collection tests
 

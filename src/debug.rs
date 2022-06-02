@@ -18,7 +18,7 @@ fn constant_instruction(name: &str, chunk: &Chunk, heap: &Heap, offset: usize) -
                     println!("{: <20}", str);
                 }
                 Object::FunctionIndex(idx) => {
-                    let fun = heap.get_function(*idx);
+                    let fun = heap.get_mut_function(*idx);
                     println!("{: <20}", format!("<fn {}>",fun.name));
                 }
                 Object::NativeFnIndex(_) => {
@@ -27,7 +27,7 @@ fn constant_instruction(name: &str, chunk: &Chunk, heap: &Heap, offset: usize) -
                 Object::ClosureIndex(idx) => {
                     let closure = heap.get_mut_closure(*idx);
                     let func_idx = closure.func_idx as usize;
-                    let func = heap.get_function(func_idx);
+                    let func = heap.get_mut_function(func_idx);
                     println!("{: <20}", format!("<fn {}>", func.name));
                 }
             }
@@ -44,7 +44,6 @@ fn  byte_instruction(name: &str, chunk: &Chunk, offset: usize)->usize {
     println!("{: <20} | {: >6} | ", name, slot);
     return offset + 2;
 }
-
 
 #[allow(arithmetic_overflow)]
 fn  jump_instruction(name: &str, sign: isize, chunk: &Chunk, offset: usize)->usize {
@@ -100,11 +99,15 @@ fn disassemble_instruction(chunk: &Chunk, heap: &Heap, mut offset: usize) -> usi
         Opcode::SetGlobal => {
             return constant_instruction("op_get_global", chunk, heap, offset);
         }
+        Opcode::GetUpvalue => {
+            return byte_instruction("op_get_upvalue", chunk, offset);
+        }
+        Opcode::SetUpvalue => {
+            return byte_instruction("op_set_upvalue", chunk, offset);
+        }
         Opcode::Equal => {
             return simple_instruction("op_equal", offset);
         }
-        Opcode::GetUpvalue => {}
-        Opcode::SetUpvalue => {}
         Opcode::Greater => {
             return simple_instruction("op_greater", offset);
         }
@@ -147,12 +150,24 @@ fn disassemble_instruction(chunk: &Chunk, heap: &Heap, mut offset: usize) -> usi
         Opcode::Closure => {
             offset += 1;
             let constant = chunk.code[offset] as usize;
+            offset += 1;
             let value = chunk.constants[constant];
-            println!("{: >4} | {: >5 }", "OP_CLOSURE" , constant);
-            println!("{}", value);
+            print!("{:>4} {:>5 }", "OP_CLOSURE" , constant);
+            println!("  {:>10}", value);
+            let func_index = value.as_function_index();
+            let function = heap.get_mut_function(func_index);
+            for _ in 0..function.upvalue_count {
+                let is_local = chunk.code[offset];
+                offset+=1;
+                let index = chunk.code[offset];
+                offset+=1;
+                let local_str = if is_local == 0u8 {"local"} else {"upvalue"};
+                println!("{:>4}           | {:>4}{:>2 }", offset - 2, local_str , index)
+            }
+            return offset;
         }
         Opcode::CloseValue => {
-
+            return 0;
         }
         Opcode::Return => {
             return simple_instruction("op_return", offset);
