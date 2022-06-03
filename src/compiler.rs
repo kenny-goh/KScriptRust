@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::{fmt, mem};
-use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefMut;
-use std::ops::Deref;
 
 use crate::function::{Function};
 use crate::{Heap, Object, Opcode, Value};
@@ -37,6 +35,7 @@ impl fmt::Display for FunctionType {
 struct Local {
     name: String,
     depth: isize,
+    pub is_captured: bool,
 }
 
 impl Local {
@@ -44,6 +43,7 @@ impl Local {
         Local {
             name,
             depth,
+            is_captured: false,
         }
     }
 }
@@ -241,13 +241,16 @@ impl Parser {
         let mut curr_local_count = self.current_compiler().locals.len();
 
         while curr_local_count > 0 &&
-            //
             self.current_compiler().locals[curr_local_count-1].depth > self.current_scope_depth() {
-            // Pop the current scope
-            self.emit_byte(Opcode::Pop.byte());
+            let local_idx = self.current_compiler().locals.len() - 1;
+            if (self.current_compiler().locals[local_idx]).is_captured {
+                self.emit_byte(Opcode::CloseValue.byte());
+            } else {
+                // Pop the current scope
+                self.emit_byte(Opcode::Pop.byte());
+            }
             // Pop the current local variable
             self.compilers[self.curr_compiler_index as usize].locals.pop();
-            //
             curr_local_count = self.current_compiler().locals.len();
         }
     }
@@ -469,7 +472,7 @@ impl Parser {
         self.emit_bytes(Opcode::Closure.byte(), constant);
 
         let mut upvalue_count = 0;
-        if (self.heap.functions[func_idx].borrow().upvalue_count > 0) {
+        if self.heap.functions[func_idx].borrow().upvalue_count > 0 {
             upvalue_count = self.heap.functions[func_idx].borrow().upvalue_count;
         }
         for i in 0..upvalue_count {
@@ -902,7 +905,7 @@ impl Parser {
             get_op = Opcode::GetLocal.byte();
         } else {
             arg = self.resolve_upvalue(current_compiler_index, &token);
-            if (arg != -1) {
+            if arg != -1 {
                 set_op = Opcode::SetUpvalue.byte();
                 get_op = Opcode::GetUpvalue.byte();
             }
@@ -960,6 +963,8 @@ impl Parser {
 
         let local = self.resolve_local(enclosing as usize, name);
         if local != -1 {
+            let enclosing_idx = self.compilers[compiler_idx].enclosing;
+            self.compilers[enclosing_idx as usize].locals[local as usize].is_captured = true;
             return self.add_upvalue(compiler_idx, local as usize, true) as isize;
         }
 

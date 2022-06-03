@@ -1,4 +1,3 @@
-use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -34,13 +33,15 @@ pub enum RunResult {
 /// Represent a virtual machine
 ///
 pub struct VM {
-    pub ip: usize,                      // instruction pointer
-    pub stack: Vec<Value>,              // Hold computation values
-    pub callstack: Vec<CallFrame>,      // List of call frames
-    pub globals: HashMap<u32, Value>,   // For global variables
-    pub heap: Heap,                     // For memory management (using Rust Box construct)
-    pub curr_func_idx: usize,           // For caching current function pointer
-    // pub _profile_duration: Duration  // For testing
+    pub ip: usize,                                          // instruction pointer
+    pub stack: Vec<Value>,                                  // Hold computation values
+    pub shadow_stack: Vec<Value>,                           // Hold shadow values (removed for stack) for closing upvalues purpose
+    pub callstack: Vec<CallFrame>,                          // List of call frames
+    pub globals: HashMap<u32, Value>,                       // For global variables
+    pub heap: Heap,                                         // For memory management (using Rust Box construct)
+    pub curr_func_idx: usize,                               // For caching current function pointer
+    pub open_upvalues: Option<Rc<RefCell<ObjUpvalue>>>      // For tracking open upvalues
+    // pub _profile_duration: Duration                      // For testing
 }
 
 impl VM {
@@ -49,10 +50,12 @@ impl VM {
         VM {
             ip: 0,
             stack: vec![],
+            shadow_stack: vec![Value::nil(); 256],
             callstack: vec![],
             globals: Default::default(),
             heap: Heap::new(),
             curr_func_idx: 0,
+            open_upvalues: None
             // _profile_duration: Default::default()
         }
     }
@@ -104,7 +107,10 @@ impl VM {
 
     /// Pop value from the stack
     fn pop(&mut self)->Value {
-        return self.stack.pop().unwrap();
+        let pos = self.stack.len()-1;
+        let val =  self.stack.pop().unwrap();
+        self.shadow_stack[pos] = val;  // this incurred some performance overhead, presumably because of copy
+        return val;
     }
 
     /// Run the VM
@@ -200,17 +206,29 @@ impl VM {
                     self.stack[slot + slot_offset] = *self.peek(0);
                 }
                 Opcode::GetUpvalue => {
+                    log!("OP GET UPVALUE");
                     // fixme: to test
                     let slot = self.read_byte()-1;
                     let closure_idx = self.callstack.last().unwrap().closure_idx;
-                    let location = self.heap.get_mut_closure(closure_idx).upvalues[slot as usize].as_ref().borrow_mut().resolve_value(&self);
+                    // fixme: this stinks
+                    let location = self.heap.get_mut_closure(closure_idx)
+                        .upvalues[slot as usize]
+                        .as_ref()
+                        .borrow_mut()
+                        .resolve_value(&self);
                     self.push(location);
                 }
                 Opcode::SetUpvalue => {
+                    log!("OP SET UPVALUE");
                     // fixme: to test
                     let slot = self.read_byte();
                     let closure_idx = self.callstack.last().unwrap().closure_idx;
-                    self.heap.get_mut_closure(closure_idx).upvalues[slot as usize].as_ref().borrow_mut().location = Some((self.stack.len()-1) as usize);
+                    // fixme: this stinks
+                    self.heap.get_mut_closure(closure_idx)
+                        .upvalues[slot as usize]
+                        .as_ref()
+                        .borrow_mut()
+                        .location = Some((self.stack.len()-1) as usize);
                 }
                 Opcode::Equal => {
                     log!("OP EQUAL");
@@ -356,6 +374,7 @@ impl VM {
                     let closure_idx = self.new_closure(func_idx, upvalue_count);
                     self.push(Value::object(Object::ClosureIndex(closure_idx)));
 
+                    //
                     let upvalues_count = self.heap.get_mut_closure(closure_idx).upvalues.len();
                     for i in 0..upvalues_count {
                         let is_local = self.read_byte();
@@ -363,15 +382,47 @@ impl VM {
 
                         let curr_frame = self.callstack.last().unwrap();
                         if is_local == 1u8 {
-                            self.heap.get_mut_closure(closure_idx).upvalues[i] =
-                                (Rc::new((RefCell::new(
-                                    ObjUpvalue::new(curr_frame.slot_offset + index as usize)))));
+                            // The upvalue is in local scope
+                            let mut prev_upvalue: Option<Rc<RefCell<ObjUpvalue>>> = None;
+                            let mut curr_upvalue = match &self.open_upvalues {
+                                None => { None }
+                                Some(it) => { Some(Rc::clone(&it)) }
+                            };
+                            let location = curr_frame.slot_offset + index as usize;
+                            // todo: Untested path
+                            while Self::upvalue_location_is_greater_than(&mut curr_upvalue, &location) {
+                                // previous = current
+                                prev_upvalue = Some(Rc::clone(&curr_upvalue.as_ref().unwrap()));
+                                // current = current -> next
+                                curr_upvalue = if Self::has_next(&mut curr_upvalue) {
+                                    let next = Self::get_next(&mut curr_upvalue);
+                                    Some(Rc::clone(next))
+                                } else {
+                                    None
+                                }
+                            }
+                            let created_upvalue= Rc::new(RefCell::new(ObjUpvalue::new(location)));
+
+                            if prev_upvalue.is_none() {
+                                self.open_upvalues = Some(Rc::clone(&created_upvalue))
+                            } else {
+                                // todo: Untested path
+                                unsafe {
+                                    (*prev_upvalue.as_ref().unwrap().as_ptr()).next = Some(Rc::clone(&created_upvalue));
+                                }
+                            }
+                            self.heap.get_mut_closure(closure_idx).upvalues[i] = Rc::clone(&created_upvalue);
                         } else {
+                            // The upvalue is in outer scope
                             let curr_frame_closure_idx = curr_frame.closure_idx;
                             self.heap.get_mut_closure(closure_idx).upvalues[i] = Rc::clone(
                                 &self.heap.get_mut_closure(curr_frame_closure_idx).upvalues[index as usize]);
                         }
                     }
+                }
+                Opcode::CloseValue => {
+                    self.pop();
+                    self.close_upvalues(self.stack.len()-1);
                 }
                 Opcode::Return => {
                     log!("OP RETURN");
@@ -388,8 +439,9 @@ impl VM {
                     // Discard call frame
                     let stack_len = self.stack.len();
                     for _ in frame_to_delete.slot_offset..stack_len {
-                        self.stack.pop();
+                        self.pop();
                     }
+                    self.close_upvalues(frame_to_delete.slot_offset);
 
                     // Push return value
                     self.push(result);
@@ -400,12 +452,26 @@ impl VM {
                     // Cached the function ptr from the current callstack
                     self.curr_func_idx = self.heap.get_mut_closure(self.callstack.last().unwrap().closure_idx).func_idx;
                 }
-                _ => {
-                    panic!("Unreachable code");
-                }
             }
         }
 
+    }
+
+    fn upvalue_location_is_greater_than(upvalue: &mut Option<Rc<RefCell<ObjUpvalue>>>, location: &usize) -> bool {
+        upvalue.is_some() &&
+            upvalue.as_ref().unwrap().as_ref().borrow().location.as_ref().unwrap() > &location
+    }
+
+    fn get_next(upvalue: &mut Option<Rc<RefCell<ObjUpvalue>>>) -> &Rc<RefCell<ObjUpvalue>> {
+        unsafe {
+            return (*upvalue.as_ref().unwrap().as_ref().as_ptr()).next.as_ref().unwrap()
+        }
+    }
+
+    fn has_next(upvalue: &mut Option<Rc<RefCell<ObjUpvalue>>>) -> bool {
+        unsafe {
+            return (*upvalue.as_ref().unwrap().as_ref().as_ptr()).next.is_some();
+        }
     }
 
     fn new_closure(&mut self, func_idx: usize, upvalue_count: usize) -> usize {
@@ -640,4 +706,34 @@ impl VM {
         return true;
     }
 
+    fn close_upvalues(&mut self, frame_slot: usize) {
+        while self.open_upvalues_location_greater_or_equal_to(&frame_slot) {
+            let location = self.get_open_upvalues_location();
+            let value = self.shadow_stack[location];
+            self.close_upvalue(value);
+            let next = if Self::has_next(&mut self.open_upvalues) {
+                Some(Rc::clone(Self::get_next(&mut self.open_upvalues)))
+            } else {
+                None
+            };
+            self.open_upvalues = next;
+            self.shadow_stack[location] = Value::Nil();
+        }
+    }
+
+    fn close_upvalue(&mut self, value: Value) {
+        unsafe {
+            (*self.open_upvalues.as_ref().unwrap().as_ref().as_ptr()).closed = Some(value);
+            (*self.open_upvalues.as_ref().unwrap().as_ref().as_ptr()).location = None;
+        }
+    }
+
+    fn open_upvalues_location_greater_or_equal_to(&mut self, frame_slot: &usize) -> bool {
+        self.open_upvalues.is_some() &&
+            self.open_upvalues.as_ref().unwrap().as_ref().borrow().location.as_ref().unwrap() >= &frame_slot
+    }
+
+    fn get_open_upvalues_location(&mut self) -> usize {
+        self.open_upvalues.as_ref().unwrap().as_ref().borrow().location.unwrap()
+    }
 }

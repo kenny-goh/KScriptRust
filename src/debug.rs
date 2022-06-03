@@ -173,5 +173,4 @@ fn disassemble_instruction(chunk: &Chunk, heap: &Heap, mut offset: usize) -> usi
             return simple_instruction("op_return", offset);
         }
     }
-    return 0;
 }

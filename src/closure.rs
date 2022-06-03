@@ -45,6 +45,7 @@ pub struct ObjUpvalue {
     pub is_null: bool,
     pub location: Option<usize>,
     pub closed: Option<Value>,
+    pub next: Option<Rc<RefCell<ObjUpvalue>>>
 }
 
 impl ObjUpvalue {
@@ -52,7 +53,8 @@ impl ObjUpvalue {
         ObjUpvalue {
             is_null: true,
             location: None,
-            closed: None
+            closed: None,
+            next: None,
         }
     }
 
@@ -60,16 +62,8 @@ impl ObjUpvalue {
         ObjUpvalue {
             is_null: false,
             location: Some(location),
-            closed: None
-        }
-    }
-
-    pub fn closed(&mut self, vm: &VM) {
-        if self.location.is_some() {
-            self.closed = Some(vm.stack[self.location.unwrap()]);
-            self.location = None;
-        } else {
-            panic!("Cannot closed when location is none");
+            closed: None,
+            next: None
         }
     }
 

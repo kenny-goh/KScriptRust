@@ -386,6 +386,27 @@ fn test_closure() {
     }
 }
 
+#[test]
+#[serial]
+fn test_closure_closed_upvalues() {
+    let code = r#"
+        fun outer() {
+          var x = "outside";
+          fun inner() {
+            return x;
+          }
+          return inner;
+        }
+        var closure = outer();
+        var _result = closure();
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("outside", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
 
 // todo: garbage collection tests
 
