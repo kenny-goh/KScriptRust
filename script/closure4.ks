@@ -1,0 +1,13 @@
+{
+  var a = 1;
+  fun f() {
+    print a;
+  }
+  var b = 2;
+  fun g() { print b; }
+  var c = 3;
+  fun h() { print c; }
+  f();
+  g();
+  h();
+}

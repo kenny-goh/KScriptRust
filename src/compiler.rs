@@ -251,6 +251,7 @@ impl Parser {
             }
             // Pop the current local variable
             self.compilers[self.curr_compiler_index as usize].locals.pop();
+
             curr_local_count = self.current_compiler().locals.len();
         }
     }
@@ -444,6 +445,7 @@ impl Parser {
         let compiler = Compiler::new(self.curr_compiler_index, func_idx, function_type);
         self.curr_compiler_index = self.compilers.len() as i16;
         self.compilers.push(compiler);
+        let compiler_idx = self.compilers.len()-1;
 
         self.begin_scope();
 
@@ -476,13 +478,13 @@ impl Parser {
             upvalue_count = self.heap.functions[func_idx].borrow().upvalue_count;
         }
         for i in 0..upvalue_count {
-            let compiler_idx = self.compilers.len()-1;
             let is_local = self.compilers[compiler_idx].upvalues[i].is_local;
             let upvalue_index_byte = self.compilers[compiler_idx].upvalues[i].index as u8;
+            //println!("***** is local {}, index {}", is_local, upvalue_index_byte);
             if is_local {
-                self.emit_byte(1);
+                self.emit_byte(1u8);
             } else {
-                self.emit_byte(0);
+                self.emit_byte(0u8);
             }
             self.emit_byte(upvalue_index_byte);
         }
@@ -544,7 +546,8 @@ impl Parser {
                 self.error("Already a variable of this name in this scope");
             }
         }
-
+        let func_index = self.current_compiler().function_idx as usize;
+        let func_name = self.heap.get_mut_function(func_index).name.clone();
         self.compilers[self.curr_compiler_index as usize].add_local(name.to_string(), -1);
     }
 
@@ -941,7 +944,7 @@ impl Parser {
         let upvalue_count = self.heap.get_mut_function(function_idx).upvalue_count;
         for i in 0..upvalue_count {
             let upvalue_is_local = self.compilers[compiler_idx].upvalues[i].is_local;
-            let upvalue_index = self.compilers[compiler_idx].upvalues[i].index;
+            let upvalue_index   = self.compilers[compiler_idx].upvalues[i].index;
             if upvalue_index == index && upvalue_is_local == is_local {
                 return i;
             }
@@ -952,23 +955,22 @@ impl Parser {
         }
         self.heap.get_mut_function(function_idx).upvalue_count+= 1;
         self.compilers[compiler_idx].add_upvalues(index, is_local);
-        return self.heap.get_mut_function(function_idx).upvalue_count;
+        return upvalue_count;
     }
 
     fn resolve_upvalue(&mut self, compiler_idx: usize,  name: &Token)->isize {
-        let enclosing = self.compilers[compiler_idx].enclosing as isize;
-        if enclosing == -1 {
+        let enclosing_idx = self.compilers[compiler_idx].enclosing as isize;
+        if enclosing_idx == -1 {
             return -1;
         }
 
-        let local = self.resolve_local(enclosing as usize, name);
+        let local = self.resolve_local(enclosing_idx as usize, name);
         if local != -1 {
-            let enclosing_idx = self.compilers[compiler_idx].enclosing;
             self.compilers[enclosing_idx as usize].locals[local as usize].is_captured = true;
             return self.add_upvalue(compiler_idx, local as usize, true) as isize;
         }
 
-        let upvalue = self.resolve_upvalue(enclosing as usize, name);
+        let upvalue = self.resolve_upvalue(enclosing_idx as usize, name);
         if upvalue != -1 {
             return self.add_upvalue(compiler_idx, upvalue as usize, false) as isize;
         }

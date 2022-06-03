@@ -58,14 +58,15 @@ impl ObjUpvalue {
         }
     }
 
-    pub fn new(location: usize) -> ObjUpvalue {
+    pub fn new(location: usize, next: Option<Rc<RefCell<ObjUpvalue>>> ) -> ObjUpvalue {
         ObjUpvalue {
             is_null: false,
             location: Some(location),
             closed: None,
-            next: None
+            next
         }
     }
+
 
     pub fn resolve_value(&mut self, vm: &VM) -> Value {
         return if self.closed.is_some() {

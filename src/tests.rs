@@ -407,6 +407,67 @@ fn test_closure_closed_upvalues() {
     }
 }
 
+#[test]
+#[serial]
+fn test_closure_complex_1() {
+    let code = r#"
+        fun outer() {
+          var a = 1;
+          var b = 2;
+
+          fun middle() {
+            var c = 3;
+            var d = 4;
+            fun inner() {
+              return a + c + b + d;
+            }
+            return inner;
+          }
+          return middle;
+        }
+        var mid = outer();
+        var in = mid();
+        var _result = in();
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("10", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+#[test]
+#[serial]
+fn test_closure_complex_2() {
+    let code = r#"
+        var _result = "";
+        {
+            fun inner() {
+                var x = 10;
+                fun inner_1() {
+                    var y = 20;
+                    fun inner_2() {
+                        var z = 30;
+                        fun inner_3() {
+                            _result = x + y + z;
+                        }
+                        inner_3();
+                    }
+                    inner_2();
+                }
+                inner_1();
+                }
+           inner();
+        }
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("60", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+
 
 // todo: garbage collection tests
 

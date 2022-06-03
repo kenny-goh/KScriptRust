@@ -88,9 +88,10 @@ impl VM {
     /// 2. The heap must contain results from the parsing phase.
     ///    eg String objects, Function objects, etc..
     pub fn execute(&mut self) -> RunResult {
-        let fun_main_idx = 0;  // Main function is always 0
-        self.push(Value::object(Object::function(fun_main_idx)));
-        let closure_idx = self.new_closure(fun_main_idx, 0);
+        let func_main_idx = 0;  // Main function is always 0
+        self.push(Value::object(Object::function(func_main_idx)));
+        let upvalue_count = self.heap.get_mut_function(func_main_idx).upvalue_count;
+        let closure_idx = self.new_closure(func_main_idx, upvalue_count);
         self.pop(); // Pop the function
         self.push(Value::Obj(Object::ClosureIndex(closure_idx)));
         self.call(closure_idx,0);
@@ -208,7 +209,7 @@ impl VM {
                 Opcode::GetUpvalue => {
                     log!("OP GET UPVALUE");
                     // fixme: to test
-                    let slot = self.read_byte()-1;
+                    let slot = self.read_byte();
                     let closure_idx = self.callstack.last().unwrap().closure_idx;
                     // fixme: this stinks
                     let location = self.heap.get_mut_closure(closure_idx)
@@ -370,6 +371,7 @@ impl VM {
                 Opcode::Closure => {
                     log!("OP CLOSURE");
                     let func_idx = self.read_constant().as_function_index();
+                    log!("FUNC: {}", self.heap.get_mut_function(func_idx).name);
                     let upvalue_count = self.heap.get_mut_function(func_idx).upvalue_count;
                     let closure_idx = self.new_closure(func_idx, upvalue_count);
                     self.push(Value::object(Object::ClosureIndex(closure_idx)));
@@ -401,17 +403,29 @@ impl VM {
                                     None
                                 }
                             }
-                            let created_upvalue= Rc::new(RefCell::new(ObjUpvalue::new(location)));
 
-                            if prev_upvalue.is_none() {
-                                self.open_upvalues = Some(Rc::clone(&created_upvalue))
+                            if curr_upvalue.is_some() &&
+                                curr_upvalue.as_ref().unwrap().as_ref().borrow().location.unwrap() == location {
+                                self.heap.get_mut_closure(closure_idx).upvalues[i] = Rc::clone(&curr_upvalue.unwrap());
                             } else {
-                                // todo: Untested path
-                                unsafe {
-                                    (*prev_upvalue.as_ref().unwrap().as_ptr()).next = Some(Rc::clone(&created_upvalue));
+                                let mut next_link: Option<Rc<RefCell<ObjUpvalue>>> = None;
+                                if curr_upvalue.is_some() {
+                                    next_link = Some( Rc::clone(&curr_upvalue.unwrap()));
                                 }
+                                let created_upvalue = Rc::new(RefCell::new(
+                                    ObjUpvalue::new(location, next_link )));
+
+                                if prev_upvalue.is_none() {
+                                    self.open_upvalues = Some(Rc::clone(&created_upvalue))
+                                } else {
+                                    // todo: Untested path
+                                    unsafe {
+                                        (*prev_upvalue.as_ref().unwrap().as_ptr()).next =
+                                            Some(Rc::clone(&created_upvalue));
+                                    }
+                                }
+                                self.heap.get_mut_closure(closure_idx).upvalues[i] = Rc::clone(&created_upvalue);
                             }
-                            self.heap.get_mut_closure(closure_idx).upvalues[i] = Rc::clone(&created_upvalue);
                         } else {
                             // The upvalue is in outer scope
                             let curr_frame_closure_idx = curr_frame.closure_idx;

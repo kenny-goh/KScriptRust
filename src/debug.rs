@@ -161,13 +161,13 @@ fn disassemble_instruction(chunk: &Chunk, heap: &Heap, mut offset: usize) -> usi
                 offset+=1;
                 let index = chunk.code[offset];
                 offset+=1;
-                let local_str = if is_local == 0u8 {"local"} else {"upvalue"};
+                let local_str = if is_local == 1u8 {"local"} else {"upvalue"};
                 println!("{:>4}           | {:>4}{:>2 }", offset - 2, local_str , index)
             }
             return offset;
         }
         Opcode::CloseValue => {
-            return 0;
+            return simple_instruction("op_close_upvalue", offset);
         }
         Opcode::Return => {
             return simple_instruction("op_return", offset);
