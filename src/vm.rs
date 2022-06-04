@@ -693,8 +693,14 @@ impl VM {
     }
 
     /// Reset the stack
-    fn reset_stack(&mut self) {
+    pub fn reset_stack(&mut self) {
         self.stack.clear();
+        self.stack_top = 0;
+        self.ip = 0;
+        self.open_upvalues = None;
+        self.curr_func_idx = 0;
+        self.callstack.clear();
+        self.heap.clear();
     }
 
     /// Convenience method for binary operations

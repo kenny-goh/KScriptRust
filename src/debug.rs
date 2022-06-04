@@ -97,7 +97,7 @@ fn disassemble_instruction(chunk: &Chunk, heap: &Heap, mut offset: usize) -> usi
             return byte_instruction("op_set_local", chunk, offset);
         }
         Opcode::SetGlobal => {
-            return constant_instruction("op_get_global", chunk, heap, offset);
+            return constant_instruction("op_set_global", chunk, heap, offset);
         }
         Opcode::GetUpvalue => {
             return byte_instruction("op_get_upvalue", chunk, offset);

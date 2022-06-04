@@ -480,7 +480,6 @@ impl Parser {
         for i in 0..upvalue_count {
             let is_local = self.compilers[compiler_idx].upvalues[i].is_local;
             let upvalue_index_byte = self.compilers[compiler_idx].upvalues[i].index as u8;
-            //println!("***** is local {}, index {}", is_local, upvalue_index_byte);
             if is_local {
                 self.emit_byte(1u8);
             } else {
@@ -584,6 +583,7 @@ impl Parser {
         }
     }
 
+    // fixme: This can go into infinite loop when there is an error with parsing inside this function
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
 
@@ -917,6 +917,16 @@ impl Parser {
 
         if can_assign && self.match_token_type(TokenType::Equal) {
             self.expression();
+            self.emit_bytes(set_op, arg as u8);
+        } else if can_assign && self.match_token_type(TokenType::PlusEqual) {
+            self.emit_bytes(get_op, arg as u8);
+            self.expression();
+            self.emit_byte(Opcode::Add.byte());
+            self.emit_bytes(set_op, arg as u8);
+        } else if can_assign && self.match_token_type(TokenType::MinusEqual) {
+            self.emit_bytes(get_op, arg as u8);
+            self.expression();
+            self.emit_byte(Opcode::Subtract.byte());
             self.emit_bytes(set_op, arg as u8);
         } else {
             self.emit_bytes(get_op, arg as u8);

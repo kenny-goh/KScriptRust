@@ -60,7 +60,7 @@ fn run_prompt() {
             break;
         }
         vm = run(vm, &line);
-        vm.reset();
+        vm.reset_stack();
     }
 }
 

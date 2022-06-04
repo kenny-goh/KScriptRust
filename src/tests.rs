@@ -216,6 +216,122 @@ fn test_multi_binary_ops() {
 
 #[test]
 #[serial]
+fn test_global_variable() {
+    let code = r#"
+        var text = "foo";
+        var _result = text;
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("foo", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+#[test]
+#[serial]
+fn test_local_variable() {
+    let code = r#"
+        var _result = "";
+        {
+          var text = "foo";
+          _result = text;
+        }
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("foo", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+#[test]
+#[serial]
+fn test_nested_local_variable() {
+    let code = r#"
+        var _result = "";
+        {
+          {
+            var text = "foo";
+            _result = text;
+          }
+        }
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("foo", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+
+#[test]
+#[serial]
+fn test_plus_equal_operator() {
+    let code = r#"
+        var i = 10;
+        i += 100;
+        var _result = i;
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("110", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+#[test]
+#[serial]
+fn test_plus_equal_operator_in_for_loop() {
+    let code = r#"
+        var j = 0;
+        for (var i = 0; i <= 100; i+=1) {
+            j = i;
+        }
+        var _result = j;
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("100", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+#[test]
+#[serial]
+fn test_minus_equal_operator() {
+    let code = r#"
+        var i = 100;
+        i -= 10;
+        var _result = i;
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("90", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+#[test]
+#[serial]
+fn test_minus_equal_operator_in_for_loop() {
+    let code = r#"
+        var j = 0;
+        for (var i = 100; i >= 0; i-=1) {
+            j = i;
+        }
+        var _result = j;
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("0", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+
+#[test]
+#[serial]
 fn test_for_loop() {
     let code = r#"
         var sum = 0;

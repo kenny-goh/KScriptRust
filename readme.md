@@ -70,8 +70,6 @@ For more examples, please refer to script subdirectory
 - Classes
 - GC (Partially working, will need to add for classes)
 - let operator (immutable variable)
-- += operator
-- ++ operator
 - lambda function
 - Outputting compiled machine code as [filename].bin
 - Non-blocking IO (using Tokio crate) 
