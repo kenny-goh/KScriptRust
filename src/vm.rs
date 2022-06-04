@@ -38,12 +38,12 @@ pub enum RunResult {
 pub struct VM {
     pub ip: usize,                                          // instruction pointer
     pub stack: Vec<Value>,                                  // Hold computation values
-    pub shadow_stack: Vec<Value>,                           // Hold shadow values (removed for stack) for closing upvalues purpose
     pub callstack: Vec<CallFrame>,                          // List of call frames
     pub globals: HashMap<u32, Value>,                       // For global variables
     pub heap: Heap,                                         // For memory management (using Rust Box construct)
     pub curr_func_idx: usize,                               // For caching current function pointer
-    pub open_upvalues: Option<Rc<RefCell<ObjUpvalue>>>      // For tracking open upvalues
+    pub open_upvalues: Option<Rc<RefCell<ObjUpvalue>>>,      // For tracking open upvalues
+    pub stack_top: usize,
     // pub _profile_duration: Duration                      // For testing
 }
 
@@ -53,12 +53,12 @@ impl VM {
         VM {
             ip: 0,
             stack: vec![],
-            shadow_stack: vec![Value::nil(); 256],
             callstack: vec![],
             globals: Default::default(),
             heap: Heap::new(),
             curr_func_idx: 0,
-            open_upvalues: None
+            open_upvalues: None,
+            stack_top: 0
             // _profile_duration: Default::default()
         }
     }
@@ -103,18 +103,18 @@ impl VM {
 
     /// Push value on to the stack
     fn push(&mut self, value: Value) {
-        if self.stack.len()  >= MAX_VALUE_STACK {
-            self.runtime_error("Stack overflow");
+        if self.stack.len() <= self.stack_top  {
+            self.stack.push(value);
+        } else {
+            self.stack[self.stack_top] = value;
         }
-        self.stack.push(value);
+        self.stack_top += 1;
     }
 
     /// Pop value from the stack
     fn pop(&mut self)->Value {
-        let pos = self.stack.len()-1;
-        let val =  self.stack.pop().unwrap();
-        self.shadow_stack[pos] = val;  // this incurred some performance overhead, presumably because of copy
-        return val;
+        self.stack_top -= 1;
+        return self.stack.get(self.stack_top).unwrap().clone();
     }
 
     /// Run the VM
@@ -425,7 +425,7 @@ impl VM {
                 }
                 Opcode::CloseValue => {
                     self.pop();
-                    self.close_upvalues(self.stack.len()-1);
+                    self.close_upvalues(self.stack_top-1);
                 }
                 Opcode::Return => {
                     log!("OP RETURN");
@@ -440,7 +440,7 @@ impl VM {
                     }
 
                     // Discard call frame
-                    let stack_len = self.stack.len();
+                    let stack_len = self.stack_top;
                     for _ in frame_to_delete.slot_offset..stack_len {
                         self.pop();
                     }
@@ -464,7 +464,7 @@ impl VM {
         self.heap.get_closure(closure_idx)
             .upvalues[slot as usize]
             .as_ref().borrow_mut()
-            .location = Some((self.stack.len() - 1) as usize);
+            .location = Some((self.stack_top - 1) as usize);
     }
 
     fn resolve_upvalue_location(&mut self, slot: u8, closure_idx: usize) -> Value {
@@ -604,7 +604,8 @@ impl VM {
 
     /// Peek stack based on the last position
     fn peek(&self, pos: usize) -> &Value {
-        return self.stack.get(self.stack.len()-1-pos).unwrap();
+        //return self.stack.get(self.stack.len()-1-pos).unwrap();
+        return self.stack.get(self.stack_top-1-pos).unwrap();
     }
 
     /// Method to call a callable object. eg function, native function, instance method, etc..
@@ -677,7 +678,7 @@ impl VM {
             self.runtime_error(&message);
         }
         let frame = CallFrame::new(closure_idx,
-                                   self.stack.len() - 1 - arg_count as usize);
+                                   self.stack_top - 1 - arg_count as usize);
         self.callstack.push(frame);
         return true;
     }
@@ -731,7 +732,8 @@ impl VM {
     fn close_upvalues(&mut self, frame_slot: usize) {
         while self.open_upvalues_location_greater_or_equal_to(&frame_slot) {
             let location = self.get_open_upvalues_location();
-            let value = self.shadow_stack[location];
+            //let value = self.shadow_stack[location];
+            let value = self.stack.get(location).unwrap().clone();
             self.close_upvalue(value);
             let next = if Self::has_next_upvalue(&mut self.open_upvalues) {
                 Self::get_next_upvalue(&self.open_upvalues)
@@ -739,7 +741,7 @@ impl VM {
                 None
             };
             self.open_upvalues = next;
-            self.shadow_stack[location] = Value::Nil();
+            //self.shadow_stack[location] = Value::Nil();
         }
     }
 
@@ -756,9 +758,7 @@ impl VM {
 
     fn open_upvalues_location_greater_or_equal_to(&mut self, frame_slot: &usize) -> bool {
         match self.open_upvalues.borrow() {
-            Some(it) => {
-                it.as_ref().borrow().location.as_ref().unwrap() >= &frame_slot
-            }
+            Some(it) => it.as_ref().borrow().location.as_ref().unwrap() >= &frame_slot,
             None => false
         }
     }
