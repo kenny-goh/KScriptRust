@@ -66,7 +66,6 @@ for (var i = 0; i < 30; i = i + 1) {
 For more examples, please refer to script subdirectory
 
 ## Todos
-- Closure (Currently work in progress)
 - Classes
 - GC (Partially working, will need to add for classes)
 - let operator (immutable variable)
