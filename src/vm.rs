@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -29,6 +30,8 @@ pub enum RunResult {
     Ok,
     RuntimeError,
 }
+
+// fixme: Too many conversion e.g usize,
 
 /// Represent a virtual machine
 ///
@@ -90,7 +93,7 @@ impl VM {
     pub fn execute(&mut self) -> RunResult {
         let func_main_idx = 0;  // Main function is always 0
         self.push(Value::object(Object::function(func_main_idx)));
-        let upvalue_count = self.heap.get_mut_function(func_main_idx).upvalue_count;
+        let upvalue_count = self.heap.get_function(func_main_idx).upvalue_count;
         let closure_idx = self.new_closure(func_main_idx, upvalue_count);
         self.pop(); // Pop the function
         self.push(Value::Obj(Object::ClosureIndex(closure_idx)));
@@ -119,7 +122,7 @@ impl VM {
 
         let main_frame = self.callstack.last().unwrap();
         self.ip = main_frame.ip;
-        self.curr_func_idx = self.heap.get_mut_closure(main_frame.closure_idx).func_idx;
+        self.curr_func_idx = self.heap.get_closure(main_frame.closure_idx).func_idx;
 
         // The VM run loop
         loop {
@@ -208,28 +211,16 @@ impl VM {
                 }
                 Opcode::GetUpvalue => {
                     log!("OP GET UPVALUE");
-                    // fixme: to test
                     let slot = self.read_byte();
                     let closure_idx = self.callstack.last().unwrap().closure_idx;
-                    // fixme: this stinks
-                    let location = self.heap.get_mut_closure(closure_idx)
-                        .upvalues[slot as usize]
-                        .as_ref()
-                        .borrow_mut()
-                        .resolve_value(&self);
-                    self.push(location);
+                    let value = self.resolve_upvalue_location(slot, closure_idx);
+                    self.push(value);
                 }
                 Opcode::SetUpvalue => {
                     log!("OP SET UPVALUE");
-                    // fixme: to test
                     let slot = self.read_byte();
                     let closure_idx = self.callstack.last().unwrap().closure_idx;
-                    // fixme: this stinks
-                    self.heap.get_mut_closure(closure_idx)
-                        .upvalues[slot as usize]
-                        .as_ref()
-                        .borrow_mut()
-                        .location = Some((self.stack.len()-1) as usize);
+                    self.set_upvalue_location(slot, closure_idx);
                 }
                 Opcode::Equal => {
                     log!("OP EQUAL");
@@ -356,7 +347,7 @@ impl VM {
                     let curr_frame = self.callstack.last().unwrap();
                     self.ip = curr_frame.ip;
                     // Cached the function ptr from the current callstack
-                    self.curr_func_idx = self.heap.get_mut_closure(curr_frame.closure_idx).func_idx;
+                    self.curr_func_idx = self.heap.get_closure(curr_frame.closure_idx).func_idx;
                 }
                 Opcode::Print => {
                     log!("OP PRINT");
@@ -371,13 +362,13 @@ impl VM {
                 Opcode::Closure => {
                     log!("OP CLOSURE");
                     let func_idx = self.read_constant().as_function_index();
-                    log!("FUNC: {}", self.heap.get_mut_function(func_idx).name);
-                    let upvalue_count = self.heap.get_mut_function(func_idx).upvalue_count;
+                    log!("FUNC: {}", self.heap.get_function(func_idx).name);
+                    let upvalue_count = self.heap.get_function(func_idx).upvalue_count;
                     let closure_idx = self.new_closure(func_idx, upvalue_count);
                     self.push(Value::object(Object::ClosureIndex(closure_idx)));
 
                     //
-                    let upvalues_count = self.heap.get_mut_closure(closure_idx).upvalues.len();
+                    let upvalues_count = self.heap.get_closure(closure_idx).upvalues.len();
                     for i in 0..upvalues_count {
                         let is_local = self.read_byte();
                         let index = self.read_byte();
@@ -392,20 +383,18 @@ impl VM {
                             };
                             let location = curr_frame.slot_offset + index as usize;
                             // todo: Untested path
-                            while Self::upvalue_location_is_greater_than(&mut curr_upvalue, &location) {
+                            while Self::upvalue_location_is_greater_than(&curr_upvalue, &location) {
                                 // previous = current
                                 prev_upvalue = Some(Rc::clone(&curr_upvalue.as_ref().unwrap()));
                                 // current = current -> next
-                                curr_upvalue = if Self::has_next(&mut curr_upvalue) {
-                                    let next = Self::get_next(&mut curr_upvalue);
-                                    Some(Rc::clone(next))
+                                curr_upvalue = if Self::has_next_upvalue(&mut curr_upvalue) {
+                                    Self::get_next_upvalue(&curr_upvalue)
                                 } else {
                                     None
                                 }
                             }
 
-                            if curr_upvalue.is_some() &&
-                                curr_upvalue.as_ref().unwrap().as_ref().borrow().location.unwrap() == location {
+                            if Self::upvalue_location_match(&curr_upvalue, location) {
                                 self.heap.get_mut_closure(closure_idx).upvalues[i] = Rc::clone(&curr_upvalue.unwrap());
                             } else {
                                 let mut next_link: Option<Rc<RefCell<ObjUpvalue>>> = None;
@@ -464,27 +453,53 @@ impl VM {
                     self.ip = self.callstack.last().unwrap().ip;
 
                     // Cached the function ptr from the current callstack
-                    self.curr_func_idx = self.heap.get_mut_closure(self.callstack.last().unwrap().closure_idx).func_idx;
+                    self.curr_func_idx = self.heap.get_closure(self.callstack.last().unwrap().closure_idx).func_idx;
                 }
             }
         }
 
     }
 
-    fn upvalue_location_is_greater_than(upvalue: &mut Option<Rc<RefCell<ObjUpvalue>>>, location: &usize) -> bool {
-        upvalue.is_some() &&
-            upvalue.as_ref().unwrap().as_ref().borrow().location.as_ref().unwrap() > &location
+    fn set_upvalue_location(&mut self, slot: u8, closure_idx: usize) {
+        self.heap.get_closure(closure_idx)
+            .upvalues[slot as usize]
+            .as_ref().borrow_mut()
+            .location = Some((self.stack.len() - 1) as usize);
     }
 
-    fn get_next(upvalue: &mut Option<Rc<RefCell<ObjUpvalue>>>) -> &Rc<RefCell<ObjUpvalue>> {
-        unsafe {
-            return (*upvalue.as_ref().unwrap().as_ref().as_ptr()).next.as_ref().unwrap()
+    fn resolve_upvalue_location(&mut self, slot: u8, closure_idx: usize) -> Value {
+        let location = self.heap.get_closure(closure_idx)
+            .upvalues[slot as usize]
+            .as_ref()
+            .borrow_mut()
+            .resolve_value(&self);
+        location
+    }
+
+    fn upvalue_location_match(curr_upvalue: &Option<Rc<RefCell<ObjUpvalue>>>, location: usize) -> bool {
+        match curr_upvalue {
+            Some(it) => it.as_ref().borrow().location == Some(location),
+            None => false
         }
     }
 
-    fn has_next(upvalue: &mut Option<Rc<RefCell<ObjUpvalue>>>) -> bool {
-        unsafe {
-            return (*upvalue.as_ref().unwrap().as_ref().as_ptr()).next.is_some();
+    fn upvalue_location_is_greater_than(upvalue: &Option<Rc<RefCell<ObjUpvalue>>>, location: &usize) -> bool {
+        match upvalue {
+            None => false,
+            Some(it) => it.as_ref().borrow().location > Some(*location)
+        }
+    }
+
+    fn get_next_upvalue(upvalue: &Option<Rc<RefCell<ObjUpvalue>>>) -> Option<Rc<RefCell<ObjUpvalue>>> {
+        return Some(Rc::clone(&upvalue.as_ref().unwrap()              // unwrap option of RC without dropping
+                                            .as_ref().borrow().next         // access upvalue object inside refcell
+                                            .as_ref().unwrap()));           // unwrap option of next without dropping
+    }
+
+    fn has_next_upvalue(upvalue: &mut Option<Rc<RefCell<ObjUpvalue>>>) -> bool {
+        match upvalue {
+            Some(it) => it.as_ref().borrow_mut().next.is_some(),
+            None => false
         }
     }
 
@@ -637,24 +652,17 @@ impl VM {
         for _ in 0..arg_count as usize {
             let value = self.pop();
             match value {
-                Value::Number(n) => {
-                    native_values.push(NativeValue::Number(n));
-                }
-                Value::Bool(b) => {
-                    native_values.push(NativeValue::Boolean(b));
-                }
-                Value::Nil() => {
-                    native_values.push(NativeValue::Nil());
-                }
-                Value::Obj(obj) => {
-                    match obj {
+                Value::Number(n) => native_values.push(NativeValue::Number(n)),
+                Value::Bool(b) => native_values.push(NativeValue::Boolean(b)),
+                Value::Nil() => native_values.push(NativeValue::Nil()),
+                Value::Obj(obj) => match obj {
                         Object::StringHash(hash) => {
                             let str = self.heap.get_string(hash).to_string();
                             native_values.insert(0, NativeValue::String(str));
                         }
                         _ => { panic!("Function, NativeFn are not allowed as argument to native function") }
-                    }
                 }
+
             }
         }
     }
@@ -663,7 +671,7 @@ impl VM {
     fn call(&mut self,
             closure_idx: usize,
             arg_count: u8) ->bool {
-        let arity = self.heap.get_mut_function(self.heap.get_mut_closure(closure_idx).func_idx).arity;
+        let arity = self.heap.get_function(self.heap.get_closure(closure_idx).func_idx).arity;
         if arg_count as usize != arity {
             let message = format!("Expected {} arguments but got {}", arity, arg_count);
             self.runtime_error(&message);
@@ -725,8 +733,8 @@ impl VM {
             let location = self.get_open_upvalues_location();
             let value = self.shadow_stack[location];
             self.close_upvalue(value);
-            let next = if Self::has_next(&mut self.open_upvalues) {
-                Some(Rc::clone(Self::get_next(&mut self.open_upvalues)))
+            let next = if Self::has_next_upvalue(&mut self.open_upvalues) {
+                Self::get_next_upvalue(&self.open_upvalues)
             } else {
                 None
             };
@@ -736,18 +744,30 @@ impl VM {
     }
 
     fn close_upvalue(&mut self, value: Value) {
-        unsafe {
-            (*self.open_upvalues.as_ref().unwrap().as_ref().as_ptr()).closed = Some(value);
-            (*self.open_upvalues.as_ref().unwrap().as_ref().as_ptr()).location = None;
-        }
+        self.open_upvalues
+            .as_ref().unwrap()  // unwrap option without dropping content
+            .as_ref()           // reference the content inside RC
+            .borrow_mut().closed = Some(value);
+        self.open_upvalues
+            .as_ref().unwrap()  // unwrap option without dropping content
+            .as_ref()           // reference the content inside RC
+            .borrow_mut().location = None;
     }
 
     fn open_upvalues_location_greater_or_equal_to(&mut self, frame_slot: &usize) -> bool {
-        self.open_upvalues.is_some() &&
-            self.open_upvalues.as_ref().unwrap().as_ref().borrow().location.as_ref().unwrap() >= &frame_slot
+        match self.open_upvalues.borrow() {
+            Some(it) => {
+                it.as_ref().borrow().location.as_ref().unwrap() >= &frame_slot
+            }
+            None => false
+        }
     }
 
     fn get_open_upvalues_location(&mut self) -> usize {
-        self.open_upvalues.as_ref().unwrap().as_ref().borrow().location.unwrap()
+        self.open_upvalues
+            .as_ref().unwrap()   // unwrap option without dropping
+            .as_ref()            // reference the content inside RC
+            .borrow()            // borrow upvalue object
+            .location.unwrap()   // unwrap option of location
     }
 }

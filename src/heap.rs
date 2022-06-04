@@ -1,5 +1,5 @@
 use std::borrow::{Borrow};
-use std::cell::{RefCell, RefMut};
+use std::cell::{Ref, RefCell, RefMut};
 use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::mem;
@@ -141,13 +141,19 @@ impl Heap {
     }
 
     /// Mutator access function via index number
-    pub fn get_mut_function(&self, idx: usize) -> RefMut<'_, Function> { return self.functions[idx].borrow_mut() }
+    pub fn get_mut_function(&self, idx: usize) -> RefMut<'_, Function> { self.functions[idx].borrow_mut() }
+
+    /// NonMutator access function via index number
+    pub fn get_function(&self, idx: usize) -> Ref<'_, Function> { self.functions[idx].borrow() }
 
     ///
-    pub fn get_nativefn(&self, idx: usize)->&NativeFn { return self.native_fns[idx].borrow() }
+    pub fn get_nativefn(&self, idx: usize)->&NativeFn { self.native_fns[idx].borrow() }
 
     /// Mutator access closure via index number
-    pub fn get_mut_closure(&self, idx: usize) -> RefMut<'_, Closure> { return self.closures[idx].borrow_mut() }
+    pub fn get_mut_closure(&self, idx: usize) -> RefMut<'_, Closure> { self.closures[idx].borrow_mut() }
+
+    // Non mutator access closure via index number
+    pub fn get_closure(&self, idx: usize) -> Ref<'_, Closure> { self.closures[idx].borrow() }
 
     /// Clear the heap - for testing only
     pub fn clear(&mut self) {

@@ -60,7 +60,7 @@ impl Clone for Local {
 #[repr(C)]
 struct Compiler {
     /// Enclosing compiler index
-    enclosing: i16,
+    enclosing: usize,
     /// Which function is associated to this compiler
     function_idx: usize,
     /// Function type
@@ -75,7 +75,7 @@ struct Compiler {
 
 
 impl Compiler {
-    pub fn new(enclosing: i16,
+    pub fn new(enclosing: usize,
                function_idx: usize,
                function_type: FunctionType) -> Self {
         Compiler {
@@ -162,7 +162,7 @@ pub struct Parser {
     /// Argument length of function
     function_arity: usize,
     /// Index to the compiler instances inside compilers
-    curr_compiler_index: i16,
+    curr_compiler_index: usize,
     /// For memory management using Rust Box construct
     pub heap: Heap,
     /// Parse rules for precedence based on Pratt algorithm
@@ -179,7 +179,7 @@ impl Parser {
             compilers: vec![],
             tokens,
             function_arity: 0,
-            curr_compiler_index: -1, // -1 means null
+            curr_compiler_index: usize::MAX, // MAX means null
             heap,
             parse_rules: HashMap::from([
                 (TokenType::LeftParen, ParseRule::from(ParseFn::Grouping, ParseFn::Call, Precedence::Call)),
@@ -217,8 +217,8 @@ impl Parser {
 
         let main_func_idx = self.heap.alloc_function(function);
 
-        let compiler = Compiler::new(-1, main_func_idx, FunctionType::Main);
-        self.curr_compiler_index = self.compilers.len() as i16;
+        let compiler = Compiler::new(usize::MAX, main_func_idx, FunctionType::Main);
+        self.curr_compiler_index = self.compilers.len();
         self.compilers.push(compiler);
 
         while !self.is_at_end() {
@@ -443,7 +443,7 @@ impl Parser {
 
         // Start of new compiler
         let compiler = Compiler::new(self.curr_compiler_index, func_idx, function_type);
-        self.curr_compiler_index = self.compilers.len() as i16;
+        self.curr_compiler_index = self.compilers.len();
         self.compilers.push(compiler);
         let compiler_idx = self.compilers.len()-1;
 
@@ -546,8 +546,6 @@ impl Parser {
                 self.error("Already a variable of this name in this scope");
             }
         }
-        let func_index = self.current_compiler().function_idx as usize;
-        let func_name = self.heap.get_mut_function(func_index).name.clone();
         self.compilers[self.curr_compiler_index as usize].add_local(name.to_string(), -1);
     }
 
@@ -903,17 +901,17 @@ impl Parser {
         let current_compiler_index = self.curr_compiler_index as usize;
 
         let mut arg = self.resolve_local(current_compiler_index, &token);
-        if arg != -1 {
+        if arg != usize::MAX {
             set_op = Opcode::SetLocal.byte();
             get_op = Opcode::GetLocal.byte();
         } else {
             arg = self.resolve_upvalue(current_compiler_index, &token);
-            if arg != -1 {
+            if arg != usize::MAX {
                 set_op = Opcode::SetUpvalue.byte();
                 get_op = Opcode::GetUpvalue.byte();
             }
             else {
-                arg = self.identifier_constant(&token.lexeme) as isize;
+                arg = self.identifier_constant(&token.lexeme) as usize;
             }
         }
 
@@ -925,7 +923,7 @@ impl Parser {
         }
     }
 
-    fn resolve_local(&mut self, compiler_idx: usize, token: &Token) -> isize {
+    fn resolve_local(&mut self, compiler_idx: usize, token: &Token) -> usize {
         let compiler = &self.compilers[compiler_idx];
         for i in (0..compiler.locals.len()).rev() {
             let local = &compiler.locals[i];
@@ -933,10 +931,10 @@ impl Parser {
                 if local.depth == -1 {
                     self.error("Can't read a local variable in its own initializer.")
                 }
-                return i as isize;
+                return i;
             }
         }
-        return -1;
+        return usize::MAX;
     }
 
     fn add_upvalue(&mut self, compiler_idx:usize, index: usize, is_local: bool)->usize {
@@ -958,24 +956,24 @@ impl Parser {
         return upvalue_count;
     }
 
-    fn resolve_upvalue(&mut self, compiler_idx: usize,  name: &Token)->isize {
-        let enclosing_idx = self.compilers[compiler_idx].enclosing as isize;
-        if enclosing_idx == -1 {
-            return -1;
+    fn resolve_upvalue(&mut self, compiler_idx: usize,  name: &Token)->usize {
+        let enclosing_idx = self.compilers[compiler_idx].enclosing;
+        if enclosing_idx == usize::MAX {
+            return usize::MAX;
         }
 
         let local = self.resolve_local(enclosing_idx as usize, name);
-        if local != -1 {
+        if local != usize::MAX {
             self.compilers[enclosing_idx as usize].locals[local as usize].is_captured = true;
-            return self.add_upvalue(compiler_idx, local as usize, true) as isize;
+            return self.add_upvalue(compiler_idx, local as usize, true);
         }
 
         let upvalue = self.resolve_upvalue(enclosing_idx as usize, name);
-        if upvalue != -1 {
-            return self.add_upvalue(compiler_idx, upvalue as usize, false) as isize;
+        if upvalue != usize::MAX {
+            return self.add_upvalue(compiler_idx, upvalue as usize, false);
         }
 
-        return -1;
+        return usize::MAX;
     }
 
 

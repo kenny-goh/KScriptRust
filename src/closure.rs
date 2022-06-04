@@ -58,7 +58,8 @@ impl ObjUpvalue {
         }
     }
 
-    pub fn new(location: usize, next: Option<Rc<RefCell<ObjUpvalue>>> ) -> ObjUpvalue {
+    pub fn new(location: usize,
+               next: Option<Rc<RefCell<ObjUpvalue>>> ) -> ObjUpvalue {
         ObjUpvalue {
             is_null: false,
             location: Some(location),
