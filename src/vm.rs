@@ -69,6 +69,9 @@ impl VM {
         self.stack.clear();
         self.globals.clear();
         self.heap.clear();
+        self.curr_func_idx = 0;
+        self.open_upvalues = None;
+        self.stack_top = 0;
     }
 
     pub fn init(&mut self) {
