@@ -65,7 +65,6 @@ impl Heap {
         // let hash = hash_string(&function.name);
         let size = mem::size_of_val(&function);
         self.bytes_allocated += size;
-        // self.functions.insert(hash, RefCell::new(function));
         let size = self.functions.len();
         self.functions.push(RefCell::new(function));
         return size;
@@ -76,7 +75,6 @@ impl Heap {
         // let hash = hash_string(&function.name);
         let size = mem::size_of_val(&function);
         self.bytes_allocated += size;
-        // self.functions.insert(hash, RefCell::new(function));
         let size = self.native_fns.len();
         self.native_fns.push(Box::new(function));
         return size;
@@ -84,7 +82,6 @@ impl Heap {
 
     /// Allocate closure
     pub fn alloc_closure(&mut self, closure: Closure) -> usize {
-        // let hash = hash_string(&function.name);
         let size = mem::size_of_val(&closure);
         self.bytes_allocated += size;
         let size = self.closures.len();
@@ -98,20 +95,38 @@ impl Heap {
 
     ///
     pub fn run_gc(&mut self, marked: Vec<Value>) {
-        let string_heap_size_before_gc = self.strings.len();
+        let string_heap_len_before_gc = self.strings.len();
+        let closure_heap_len_before_gc = self.closures.len();
+        let func_heap_len_before_gc = self.functions.len();
         let before_gc =  self.bytes_allocated as f32 / 1000000.0;
         self.sweep(marked);
         let after_gc = self.bytes_allocated as f32 / 1000000.0;
         self.next_gc = cmp::max(self.bytes_allocated * GC_FACTOR, INITIAL_SIZE);
         let next_gc = self.next_gc as f32 / 1000000.0;
-        let string_heap_size_after_fc = self.strings.len();
+        let string_heap_len_after_gc = self.strings.len();
+        let closure_heap_len_after_gc = self.closures.len();
+        let func_heap_len_after_gc = self.functions.len();
         println!("{} Freed memory from {:.2} MB to {:.2} MB, next GC at {:.2} MB.", "GC".bold().blue(), before_gc, after_gc, next_gc);
-        println!("{} Reduced string heap size from {} to {}", "GC".bold().blue(), string_heap_size_before_gc, string_heap_size_after_fc);
+        if string_heap_len_before_gc != string_heap_len_after_gc {
+            println!("{} Reduced string capacity from {} to {}", "GC".bold().blue(), string_heap_len_before_gc, string_heap_len_after_gc);
+        }
+        if closure_heap_len_before_gc != closure_heap_len_after_gc {
+            println!("{} Reduced closure capacity from {} to {}", "GC".bold().blue(), closure_heap_len_before_gc, closure_heap_len_after_gc);
+        }
+        if func_heap_len_before_gc != func_heap_len_after_gc {
+            println!("{} Reduced function capacity from {} to {}", "GC".bold().blue(), func_heap_len_before_gc, func_heap_len_after_gc);
+        }
     }
 
 
     /// Sweep orphan objects from the heap after comparing with the marked values
     fn sweep(&mut self, marked: Vec<Value>) {
+        self.free_strings(&marked);
+        self.free_closures(&marked);
+        self.free_functions(&marked);
+    }
+
+    fn free_strings(&mut self, marked: &Vec<Value>) {
         let mut is_alive: HashSet<u32> = HashSet::new();
         for each in marked {
             if each.is_string_hash() {
@@ -119,6 +134,7 @@ impl Heap {
             }
         }
         let mut deletions: HashSet<u32> = HashSet::new();
+        //  deleting strings
         for each in self.strings.keys() {
             if is_alive.contains(each) {
                 continue;
@@ -132,6 +148,67 @@ impl Heap {
         }
         for each in deletions {
             self.strings.remove(&each);
+        }
+    }
+
+    fn free_closures(&mut self, marked: &Vec<Value>) {
+        let mut is_alive: HashSet<usize> = HashSet::new();
+        for each in marked {
+            if each.is_closure_index() {
+                is_alive.insert(each.as_closure_index());
+            }
+        }
+        let mut deletions: Vec<usize> = vec![];
+        let mut index = 0;
+        for each in &self.closures {
+            if is_alive.contains(&index) {
+                continue;
+            }
+            let size = mem::size_of_val(&each);
+            if self.bytes_allocated > size {
+                self.bytes_allocated -= size;
+            }
+            deletions.push(index);
+            index += 1;
+        }
+
+        deletions.sort();
+        deletions.reverse();
+
+        for i in 0..deletions.len() {
+            let index = deletions[i];
+            self.closures.remove(i);
+        }
+    }
+
+    // fixme: this can be a generic function
+    fn free_functions(&mut self, marked: &Vec<Value>) {
+        let mut is_alive: HashSet<usize> = HashSet::new();
+        for each in marked {
+            if each.is_function_index() {
+                is_alive.insert(each.as_function_index());
+            }
+        }
+        let mut deletions: Vec<usize> = vec![];
+        let mut index = 0;
+        for each in &self.functions {
+            if is_alive.contains(&index) {
+                continue;
+            }
+            let size = mem::size_of_val(&each);
+            if self.bytes_allocated > size {
+                self.bytes_allocated -= size;
+            }
+            deletions.push(index);
+            index += 1;
+        }
+
+        deletions.sort();
+        deletions.reverse();
+
+        for i in 0..deletions.len() {
+            let index = deletions[i];
+            self.functions.remove(i);
         }
     }
 

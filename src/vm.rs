@@ -124,6 +124,8 @@ impl VM {
     fn run(&mut self)-> RunResult {
 
         let main_frame = self.callstack.last().unwrap();
+
+        let mut ip_counter = 0;
         self.ip = main_frame.ip;
         self.curr_func_idx = self.heap.get_closure(main_frame.closure_idx).func_idx;
 
@@ -131,6 +133,8 @@ impl VM {
         loop {
             log!("LINE: {}", self.ip);
             log!("CALL STACK {:?}", &self.stack);
+
+
             let byte = self.read_byte();
 
             // Convert byte to opcode
@@ -251,14 +255,6 @@ impl VM {
                         merged.push_str(&str_a);
 
                         let hash = self.heap.alloc_string(merged);
-
-                        // Bugfix: Garbage collection
-                        // Make sure the newly allocated string is not garbage collected
-                        // by pushing it to the stack and popping it off after gc check
-                        self.push(Value::object(Object::string(hash)));
-                        self.try_run_garbage_collection();
-                        self.pop();
-                        // End of Bugfix
 
                         self.pop();
                         self.pop();
@@ -459,6 +455,12 @@ impl VM {
                     self.curr_func_idx = self.heap.get_closure(self.callstack.last().unwrap().closure_idx).func_idx;
                 }
             }
+
+            if ip_counter % 5000 == 0 {
+                self.try_run_garbage_collection();
+            }
+
+            ip_counter += 1;
         }
 
     }
@@ -529,9 +531,24 @@ impl VM {
             match object {
                 Value::Obj(object) => {
                     match object {
-                        Object::FunctionIndex(idx) => {
-                            for val in &self.heap.functions[idx].borrow_mut().chunk.constants {
+                        Object::ClosureIndex(idx) => {
+                            let func_dx = self.heap.get_closure(idx).func_idx;
+                            // Constants
+                            for val in &self.heap.functions[func_dx].borrow().chunk.constants {
                                 roots.push(val.clone());
+                            }
+                            // Function
+                            roots.push(Value::Obj(Object::FunctionIndex(func_dx)));
+                            // Upvalues that have been closed
+                            for val in &self.heap.get_closure(idx).upvalues {
+                                if !val.as_ref().borrow().is_null {
+                                    match val.as_ref().borrow().closed {
+                                        Some(it) => {
+                                            roots.push(it.clone())
+                                        }
+                                        None => {}
+                                    }
+                                }
                             }
                         }
                         _ => {}
@@ -548,6 +565,9 @@ impl VM {
         roots.extend(self.globals.values().cloned().collect::<Vec<Value>>());
         for str_hash in self.globals.keys() {
             roots.push(Value::Obj(Object::StringHash(*str_hash)))
+        }
+        for callframe in &self.callstack {
+            roots.push(Value::Obj(Object::ClosureIndex(callframe.closure_idx)));
         }
     }
 
@@ -607,7 +627,6 @@ impl VM {
 
     /// Peek stack based on the last position
     fn peek(&self, pos: usize) -> &Value {
-        //return self.stack.get(self.stack.len()-1-pos).unwrap();
         return self.stack.get(self.stack_top-1-pos).unwrap();
     }
 
@@ -750,7 +769,6 @@ impl VM {
                 None
             };
             self.open_upvalues = next;
-            //self.shadow_stack[location] = Value::Nil();
         }
     }
 

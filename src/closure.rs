@@ -21,6 +21,12 @@ impl Closure {
     }
 }
 
+impl PartialEq for Closure {
+    fn eq(&self, other: &Self) -> bool {
+        self.func_idx == other.func_idx
+    }
+}
+
 pub struct Upvalue {
     pub index: usize,
     pub is_local: bool,
