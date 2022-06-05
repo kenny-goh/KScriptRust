@@ -84,7 +84,7 @@ for (var i = 0; i < 100; i += 1) {
 Compiled bytecodes
 ```shell
 main
-Loc  | Line  | instruction          | const  | values
+Loc  | Line  | Instruction          | Const  | Values
    0 |     0 | op_constant          |      0 | 10
    2 |     0 | op_constant          |      0 | 10
    4 |     0 | op_add
