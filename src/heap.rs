@@ -7,9 +7,11 @@ use std::mem;
 use colored::Colorize;
 
 use crate::{Value};
+use crate::class::Class;
 use crate::function::Function;
 use crate::nativefn::NativeFn;
 use crate::closure::Closure;
+use crate::instance::ClassInstance;
 use crate::utils::hash_string;
 
 const GC_FACTOR: usize = 2;
@@ -35,6 +37,10 @@ pub struct Heap {
     pub native_fns: Vec<Box<NativeFn>>,
     /// Storage for closures
     pub closures: Vec<RefCell<Closure>>,
+    /// Storage for classes
+    pub classes: Vec<RefCell<Class>>,
+    /// Storage for class instances
+    pub instances: Vec<RefCell<ClassInstance>> // fixme: this should be a hash map with unique identifier for each instance
 }
 
 impl Heap {
@@ -46,6 +52,8 @@ impl Heap {
             functions: vec![],
             native_fns: vec![],
             closures: vec![],
+            classes: vec![],
+            instances: vec![]
         }
     }
 
@@ -62,7 +70,6 @@ impl Heap {
 
     /// Allocate function object
     pub fn alloc_function(&mut self, function: Function) -> usize {
-        // let hash = hash_string(&function.name);
         let size = mem::size_of_val(&function);
         self.bytes_allocated += size;
         let size = self.functions.len();
@@ -86,6 +93,24 @@ impl Heap {
         self.bytes_allocated += size;
         let size = self.closures.len();
         self.closures.push(RefCell::new(closure));
+        return size;
+    }
+
+    /// Allocate class
+    pub fn alloc_class(&mut self, class: Class) -> usize {
+        let size = mem::size_of_val(&class);
+        self.bytes_allocated += size;
+        let size = self.classes.len();
+        self.classes.push(RefCell::new(class));
+        return size;
+    }
+
+    /// Allocate instance
+    pub fn alloc_instance(&mut self, instance: ClassInstance)->usize {
+        let size = mem::size_of_val(&instance);
+        self.bytes_allocated += size;
+        let size = self.instances.len();
+        self.instances.push(RefCell::new(instance));
         return size;
     }
 
@@ -124,6 +149,8 @@ impl Heap {
         self.free_strings(&marked);
         self.free_closures(&marked);
         self.free_functions(&marked);
+        self.free_classes(&marked);
+        self.free_instances(&marked);
     }
 
     fn free_strings(&mut self, marked: &Vec<Value>) {
@@ -212,6 +239,14 @@ impl Heap {
         }
     }
 
+    fn free_classes(&self, marked: &Vec<Value>) {
+        todo!()
+    }
+
+    fn free_instances(&self, marked: &Vec<Value>) {
+        todo!()
+    }
+
     /// Access string via hash key
     pub fn get_string(&self, hash: u32) ->&String {
         return self.strings.get(&hash).unwrap();
@@ -229,16 +264,33 @@ impl Heap {
     /// Mutator access closure via index number
     pub fn get_mut_closure(&self, idx: usize) -> RefMut<'_, Closure> { self.closures[idx].borrow_mut() }
 
-    // Non mutator access closure via index number
+    /// Non mutator access closure via index number
     pub fn get_closure(&self, idx: usize) -> Ref<'_, Closure> { self.closures[idx].borrow() }
+
+    /// Mutator access class via index number
+    pub fn get_mut_class(&self, idx: usize) -> RefMut<'_, Class> { self.classes[idx].borrow_mut() }
+
+    /// Non mutator access class via index number
+    pub fn get_class(&self, idx: usize) -> Ref<'_, Class> { self.classes[idx].borrow() }
+
+    /// Mutator instance class via index number
+    pub fn get_mut_instance(&self, idx: usize) -> RefMut<'_, ClassInstance> { self.instances[idx].borrow_mut() }
+
+    /// Non mutator access instance via index number
+    pub fn get_instance(&self, idx: usize) -> Ref<'_, ClassInstance> { self.instances[idx].borrow() }
 
     /// Clear the heap - for testing only
     pub fn clear(&mut self) {
         self.strings.clear();
         self.functions.clear();
+        self.classes.clear();
+        self.closures.clear();
+        self.instances.clear();
         self.bytes_allocated = 0;
         self.next_gc = INITIAL_SIZE;
     }
+
+
 }
 
 impl Drop for Heap {

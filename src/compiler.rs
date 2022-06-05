@@ -127,6 +127,7 @@ enum ParseFn {
     Literal,
     And,
     Or,
+    Dot,
 }
 
 #[derive(Copy, Clone)]
@@ -183,6 +184,7 @@ impl Parser {
             heap,
             parse_rules: HashMap::from([
                 (TokenType::LeftParen, ParseRule::from(ParseFn::Grouping, ParseFn::Call, Precedence::Call)),
+                (TokenType::Dot, ParseRule::from(ParseFn::None, ParseFn::Dot, Precedence::Call)),
                 (TokenType::Minus, ParseRule::from(ParseFn::Unary, ParseFn::Binary, Precedence::Term)),
                 (TokenType::Plus, ParseRule::from(ParseFn::None, ParseFn::Binary, Precedence::Term)),
                 (TokenType::Slash, ParseRule::from(ParseFn::None, ParseFn::Binary, Precedence::Factor)),
@@ -416,6 +418,8 @@ impl Parser {
             self.fun_declaration();
         } else if self.match_token_type(TokenType::Var) {
             self.var_declaration();
+        } else if self.match_token_type(TokenType::Class) {
+           self.class_declaration();
         } else {
             self.statement();
         }
@@ -640,7 +644,8 @@ impl Parser {
             ParseFn::Number => self.number(),
             ParseFn::Literal => self.literal(),
             ParseFn::And => self.and(),
-            ParseFn::Or => self.or()
+            ParseFn::Or => self.or(),
+            ParseFn::Dot => self.dot(can_assign)
         }
         return true;
     }
@@ -831,6 +836,17 @@ impl Parser {
         }
     }
 
+    fn dot(&mut self, can_assign: bool) {
+        self.consume(TokenType::Identifier, "Expect property nane after '.'.");
+        let name = self.identifier_constant(&self.previous().lexeme);
+        if can_assign && self.match_token_type(TokenType::Equal) {
+            self.expression();
+            self.emit_bytes(Opcode::SetProperty.byte(), name);
+        } else {
+            self.emit_bytes(Opcode::GetProperty.byte(), name);
+        }
+    }
+
 
     fn and(&mut self) {
         let end_jump = self.emit_jump(Opcode::JumpIfFalse.byte());
@@ -987,5 +1003,17 @@ impl Parser {
     }
 
 
+    fn class_declaration(&mut self) {
+        self.consume(TokenType::Identifier, "Expect a class name.");
+        let name_constant = self.identifier_constant(&self.previous().lexeme);
+        self.declare_variable();
+
+        self.emit_bytes(Opcode::Class.byte(), name_constant);
+        self.define_variable(name_constant);
+
+        self.consume(TokenType::LeftBrace, "Expect '{' before class body");
+        self.consume(TokenType::RightBrace, "Expect '}' after class body.");
+
+    }
 }
 
