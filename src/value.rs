@@ -7,21 +7,21 @@ use crate::Value::{Bool, Nil, Number, Obj};
 pub enum Value {
     Number(f64),
     Bool(bool),
-    Nil(),
     Obj(Object),
+    Nil(),
 }
 
 impl Value {
     pub fn nil() ->Self {
         Nil()
     }
-    pub fn bool(boolean: bool) ->Self {
+    pub fn bool(boolean: bool) -> Self {
        Bool(boolean)
     }
-    pub fn number(number: f64) ->Self {
+    pub fn number(number: f64) -> Self {
        Number(number)
     }
-    pub fn object(object: Object) ->Self {
+    pub fn object(object: Object) -> Self {
         Obj(object)
     }
 

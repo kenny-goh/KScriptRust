@@ -1,6 +1,5 @@
 
 #[derive(Copy, Clone, Eq, PartialEq)]
-
 /// Represent runtime call data structure
 pub struct CallFrame {
     /// Pseudo pointer to the closure object in the heap
@@ -11,7 +10,7 @@ pub struct CallFrame {
     pub slot_offset: usize
 }
 impl CallFrame {
-    pub fn new(closure_idx: usize, slot_offset: usize) ->Self {
+    pub fn new(closure_idx: usize, slot_offset: usize) -> Self {
         CallFrame {
             closure_idx,
             slot_offset,
