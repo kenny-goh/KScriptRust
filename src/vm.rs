@@ -1,10 +1,9 @@
 use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
 use std::rc::Rc;
 use colored::Colorize;
-use fnv::FnvHashMap;
+use fnv::{FnvHasher, FnvHashMap};
 
 use crate::{Heap, Object, Opcode, Value};
 use crate::callframe::CallFrame;
@@ -42,7 +41,7 @@ pub struct VM {
     pub ip: usize,                                          // instruction pointer
     pub stack: Vec<Value>,                                  // Hold computation values
     pub callstack: Vec<CallFrame>,                          // List of call frames
-    pub globals: HashMap<u32, Value, nohash_hasher::BuildNoHashHasher<u32>>,
+    pub globals: FnvHashMap<u32, Value>,
     pub heap: Heap,                                         // For memory management (using Rust Box construct)
     pub curr_func_idx: usize,                               // For caching current function pointer
     pub open_upvalues: Option<Rc<RefCell<ObjUpvalue>>>,      // For tracking open upvalues
@@ -55,10 +54,10 @@ impl VM {
     pub fn new() ->Self {
         VM {
             ip: 0,
-            stack: vec![],
-            callstack: vec![],
-            //globals: FnvHashMap::default(),
-            globals: HashMap::default(),
+            stack: vec![Value::Nil();256],
+            callstack: Vec::with_capacity(256),
+            //vec![],
+            globals: FnvHashMap::default(),
             heap: Heap::new(),
             curr_func_idx: 0,
             open_upvalues: None,
@@ -110,11 +109,7 @@ impl VM {
 
     /// Push value on to the stack
     fn push(&mut self, value: Value) {
-        if self.stack.len() <= self.stack_top  {
-            self.stack.push(value);
-        } else {
-            self.stack[self.stack_top] = value;
-        }
+        self.stack[self.stack_top] = value;
         self.stack_top += 1;
     }
 
@@ -447,7 +442,6 @@ impl VM {
                     // Discard call frame
                     let stack_len = self.stack_top;
                     for _ in frame_to_delete.slot_offset..stack_len {
-                        //self.pop();
                         self.fpop(); // performance-tuning
                     }
                     self.close_upvalues(frame_to_delete.slot_offset);
@@ -702,16 +696,17 @@ impl VM {
             closure_idx: usize,
             arg_count: usize) -> bool {
 
-        let arity = unsafe {
-            // faster to use ptr
+        let arity = unsafe { // faster to use ptr
             (*self.heap.functions[(*self.heap.closures[closure_idx].as_ptr()).func_idx].as_ptr()).arity
         };
-        //let arity = self.heap.get_function(self.heap.get_closure(closure_idx).func_idx).arity;
+
+        // slower => let arity = self.heap.get_function(self.heap.get_closure(closure_idx).func_idx).arity;
 
         if arg_count != arity {
             let message = format!("Expected {} arguments but got {}", arity, arg_count);
             self.runtime_error(&message);
         }
+
         let frame = CallFrame::new(closure_idx,
                                    self.stack_top - 1 - arg_count);
         self.callstack.push(frame);
@@ -739,18 +734,16 @@ impl VM {
     fn bin_ops<F>(&mut self, mut apply: F) -> bool
         where F: FnMut(f64, f64)->f64 {
 
-        let b = *self.peek(0);
-        let a = *self.peek(1);
+        let b = self.pop();
+        let a = self.pop();
 
-        if Self::is_both_number(&a, &b) {
-            self.fpop();
-            self.fpop();
+        return if Self::is_both_number(&a, &b) {
             self.push(Value::number(apply(a.as_number(), b.as_number())));
+            true
         } else {
             self.runtime_error("Operands must be numbers");
-            return false;
+            false
         }
-        return true;
     }
 
     /// Convenience method for binary comparisons
@@ -760,14 +753,13 @@ impl VM {
         let b = self.pop();
         let a = self.pop();
 
-        if Self::is_both_number(&a, &b) {
-            self.push(Value::bool(apply(a,b)));
-        }
-        else {
+        return if Self::is_both_number(&a, &b) {
+            self.push(Value::bool(apply(a, b)));
+            true
+        } else {
             self.runtime_error("Operands must be numbers");
-            return false;
+            false
         }
-        return true;
     }
 
     fn close_upvalues(&mut self, frame_slot: usize) {

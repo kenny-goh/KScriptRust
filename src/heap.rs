@@ -177,7 +177,7 @@ impl Heap {
 
         for i in 0..deletions.len() {
             let index = deletions[i];
-            self.closures.remove(i);
+            self.closures.remove(index);
         }
     }
 
@@ -208,7 +208,7 @@ impl Heap {
 
         for i in 0..deletions.len() {
             let index = deletions[i];
-            self.functions.remove(i);
+            self.functions.remove(index);
         }
     }
 
