@@ -38,7 +38,7 @@ var foo = "bar";
 print foo;        // "bar"
 
 // For loop
-for (var i = 0; i < 10; i = i + 1) {
+for (var i = 0; i < 10; i += 1) {
   // do something
 }
 
@@ -142,6 +142,35 @@ Expression
 * primary -> number | string | “true” | “false” | “nil” | “(“ expression “)”;
 * arguments -> expression ( "," expression )*
 * call-> primary "("  arguments? ")" block
+
+
+## Performance 
+
+Using the following inefficient method of computing fibonaci sum
+
+KScript
+```shell
+fun fib(n) {
+  if (n <= 1) return n;
+  return fib(n - 2) + fib(n - 1);
+}
+print fib(40);
+```
+
+Python
+```shell
+def fib(n):
+  if n <= 1:
+    return n;
+  return fib(n - 2) + fib(n - 1)
+fib(40)
+```
+
+The benchmark is:  
+KScript ~ 19s  (not too shabby without deep finetuning)  
+Python ~ 17s
+
+I will optimize KScriptRust once I have fully implemented object-oriented features and completed the garbage collector.
 
 ## Todos
 - Classes
