@@ -66,7 +66,7 @@ fn  jump_instruction(name: &str, sign: isize, chunk: &Chunk, offset: usize)->usi
 
 pub fn disassemble_chunk(chunk: &Chunk, heap: &Heap, name: &str) {
     println!("{}", name);
-    println!("Loc  | Line  | instruction          | const  | values");
+    println!("Loc  | Line  | Instruction          | Const  | Values");
     let mut offset = 0;
     loop {
         if offset >= chunk.code.len() { break };
