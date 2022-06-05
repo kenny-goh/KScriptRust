@@ -37,7 +37,10 @@ pub enum Opcode {
     Call = 25,
     Closure = 26,
     CloseValue = 27,
-    Return = 28,
+    Class = 28,
+    SetProperty = 29,
+    GetProperty = 30,
+    Return = 31,
 }
 
 impl Opcode {

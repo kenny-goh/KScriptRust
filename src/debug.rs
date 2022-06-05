@@ -25,10 +25,20 @@ fn constant_instruction(name: &str, chunk: &Chunk, heap: &Heap, offset: usize) -
                     println!("{: <20}","<nativefn>");
                 }
                 Object::ClosureIndex(idx) => {
-                    let closure = heap.get_mut_closure(*idx);
+                    let closure = heap.get_closure(*idx);
                     let func_idx = closure.func_idx as usize;
-                    let func = heap.get_mut_function(func_idx);
+                    let func = heap.get_function(func_idx);
                     println!("{: <20}", format!("<fn {}>", func.name));
+                }
+                Object::ClassIndex(idx) => {
+                    let class = heap.get_class(*idx);
+                    println!("{: <20}", format!("<Class {}>", class.name));
+                }
+                Object::InstanceIndex(idx) => {
+                    let instance = heap.get_instance(*idx);
+                    let class_idx = instance.class_idx;
+                    let class = heap.get_class(class_idx);
+                    println!("{: <20}", format!("<Instance {}>", class.name));
                 }
             }
         }
@@ -169,8 +179,18 @@ fn disassemble_instruction(chunk: &Chunk, heap: &Heap, mut offset: usize) -> usi
         Opcode::CloseValue => {
             return simple_instruction("op_close_upvalue", offset);
         }
+        Opcode::Class => {
+            return constant_instruction("op_class", chunk, heap, offset);
+        }
         Opcode::Return => {
             return simple_instruction("op_return", offset);
+        }
+        Opcode::SetProperty => {
+            return constant_instruction("op_set_property", chunk, heap, offset);
+
+        }
+        Opcode::GetProperty => {
+            return constant_instruction("op_get_property", chunk, heap, offset);
         }
     }
 }

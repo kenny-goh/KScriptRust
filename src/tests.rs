@@ -584,6 +584,24 @@ fn test_closure_complex_2() {
 }
 
 
+#[test]
+#[serial]
+fn test_klass_instance_properties() {
+    let code = r#"
+        class Dude {}
+        var dude = Dude();
+        dude.name = "Foo man";
+        dude.age = 21;
+        var _result = dude.name + " " + str(dude.age);
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("Foo man 21", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+
 
 // todo: garbage collection tests
 

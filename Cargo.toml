@@ -16,4 +16,4 @@ serial_test = "0.6.0"
 debug = true
 
 [profile.release]
-debug = true
+debug = false

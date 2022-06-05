@@ -1,14 +1,15 @@
-use std::borrow::Borrow;
+use std::borrow::{Borrow};
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 use colored::Colorize;
-use fnv::{FnvHasher, FnvHashMap};
+use fnv::{ FnvHashMap};
 
 use crate::{Heap, Object, Opcode, Value};
 use crate::callframe::CallFrame;
+use crate::class::Class;
 use crate::closure::{Closure, ObjUpvalue};
 use crate::function::Function;
+use crate::instance::ClassInstance;
 use crate::nativefn::{append_file_native, clock_native, NativeFn, NativeValue, str_native, write_file_native};
 
 const CHECK_GC_INTERVAL: usize =  5000;
@@ -56,7 +57,6 @@ impl VM {
             ip: 0,
             stack: vec![Value::Nil();256],
             callstack: Vec::with_capacity(256),
-            //vec![],
             globals: FnvHashMap::default(),
             heap: Heap::new(),
             curr_func_idx: 0,
@@ -108,18 +108,21 @@ impl VM {
     }
 
     /// Push value on to the stack
+    #[inline(always)]
     fn push(&mut self, value: Value) {
         self.stack[self.stack_top] = value;
         self.stack_top += 1;
     }
 
     /// Pop value from the stack
+    #[inline(always)]
     fn pop(&mut self)->Value {
         self.stack_top -= 1;
         return self.stack.get(self.stack_top).unwrap().clone();
     }
 
     /// Fast pop without returning value
+    #[inline(always)]
     fn fpop(&mut self) {
         self.stack_top -= 1;
     }
@@ -229,6 +232,32 @@ impl VM {
                     let slot = self.read_byte();
                     let closure_idx = self.callstack.last().unwrap().closure_idx;
                     self.set_upvalue_location(slot, closure_idx);
+                }
+                Opcode::GetProperty => {
+                    let instance_idx = self.peek(0).as_instance_index();
+                    let field_name_hash = self.read_string().as_string_hash();
+                    let field_name = self.heap.get_string(field_name_hash);
+                    if self.heap.get_instance(instance_idx).fields.contains_key(&field_name_hash) {
+                        let value = self.heap.get_instance(instance_idx).fields.get(&field_name_hash).unwrap().clone();
+                        self.fpop(); // instance
+                        self.push(value);
+                    } else {
+                        let error_text = format!("Undefined property {}", field_name);
+                        self.runtime_error( &error_text );
+                        return RunResult::RuntimeError;
+                    }
+                }
+                Opcode::SetProperty => {
+                    if !self.peek(1).is_instance_index() {
+                        self.runtime_error("Only instance have fields.");
+                        return RunResult::RuntimeError;
+                    }
+                    let instance_idx = self.peek(1).as_instance_index();
+                    let field_name_hash = self.read_string().as_string_hash();
+                    self.heap.get_mut_instance(instance_idx).fields.insert(field_name_hash, *self.peek(0) );
+                    let value = self.pop();
+                    self.fpop(); // instance
+                    self.push(value)
                 }
                 Opcode::Equal => {
                     log!("OP EQUAL");
@@ -427,6 +456,13 @@ impl VM {
                     self.fpop();
                     self.close_upvalues(self.stack_top-1);
                 }
+                Opcode::Class => {
+                    let str_hash = self.read_constant().as_string_hash();
+                    let class_name = self.heap.get_string(str_hash);
+                    let class = Class::new(class_name.to_string());
+                    let class_idx = self.heap.alloc_class(class);
+                    self.push(Value::Obj(Object::ClassIndex(class_idx)));
+                }
                 Opcode::Return => {
                     log!("OP RETURN");
 
@@ -520,7 +556,9 @@ impl VM {
     fn try_run_garbage_collection(&mut self) {
         if self.heap.is_ready_for_garbage_collection() {
             let mut marked_objects = vec![];
+            // fixme: mark class and instances
             self.mark_roots(&mut marked_objects);
+            // fixme: trace references under class and instances
             self.trace_references(&mut marked_objects);
             self.heap.run_gc(marked_objects);
         }
@@ -544,12 +582,18 @@ impl VM {
                             for val in &self.heap.get_closure(idx).upvalues {
                                 if !val.as_ref().borrow().is_null {
                                     match val.as_ref().borrow().closed {
-                                        Some(it) => {
-                                            roots.push(it.clone())
-                                        }
+                                        Some(it) => roots.push(it.clone()),
                                         None => {}
                                     }
                                 }
+                            }
+                        },
+                        Object::InstanceIndex(idx) => {
+                            let instance = self.heap.get_instance(idx);
+                            // Mark hash table
+                            roots.extend(instance.fields.values().cloned().collect::<Vec<Value>>());
+                            for str_hash in instance.fields.keys() {
+                                roots.push(Value::Obj(Object::StringHash(*str_hash)));
                             }
                         }
                         _ => {}
@@ -563,6 +607,7 @@ impl VM {
     ///
     fn mark_roots(&mut self, roots: &mut Vec<Value>) {
         roots.extend(self.stack.clone());
+        // Mark hash table
         roots.extend(self.globals.values().cloned().collect::<Vec<Value>>());
         for str_hash in self.globals.keys() {
             roots.push(Value::Obj(Object::StringHash(*str_hash)))
@@ -593,6 +638,7 @@ impl VM {
     }
 
     /// Helper to get current function
+    #[inline(always)]
     fn curr_function(&self) -> *mut Function {
         // performance optimization -> use pointer
         return self.heap.functions[self.curr_func_idx].as_ptr()
@@ -638,6 +684,12 @@ impl VM {
         if callee.is_closure_index() {
             let closure_idx = callee.as_closure_index();
             return self.call(closure_idx, arg_count);
+        } else if callee.is_class_index() {
+            let class_idx = callee.as_class_index();
+            let instance_idx = self.heap.alloc_instance(ClassInstance::new(class_idx));
+            let stack_idx = self.stack_top as isize -(arg_count as isize) - 1;
+            self.stack[stack_idx as usize] = Value::Obj(Object::InstanceIndex(instance_idx));
+            return true;
         } else if callee.is_nativefn_index() {
             let native_fn_idx = callee.as_nativefn_index();
             return self.call_native(arg_count, native_fn_idx);
@@ -692,6 +744,7 @@ impl VM {
     }
 
     /// Insert the call into the call stack
+    #[inline(always)]
     fn call(&mut self,
             closure_idx: usize,
             arg_count: usize) -> bool {

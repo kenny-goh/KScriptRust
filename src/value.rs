@@ -67,6 +67,17 @@ impl Value {
         };
     }
 
+    pub fn as_class_index(&self) ->usize {
+        return if let Obj(ob) = self { ob.as_class_index() } else {
+            panic!("Not a class object")
+        };
+    }
+
+    pub fn as_instance_index(&self) ->usize {
+        return if let Obj(ob) = self { ob.as_instance_index() } else {
+            panic!("Not a class instance")
+        };
+    }
 
     pub fn is_number(&self) ->bool {
         return match self {
@@ -110,6 +121,20 @@ impl Value {
     pub fn is_closure_index(&self) -> bool {
         return match self {
             Obj(obj) => {obj.is_closure_index()}
+            _ => { false }
+        }
+    }
+
+    pub fn is_class_index(&self) -> bool {
+        return match self {
+            Obj(obj) => {obj.is_class_index()}
+            _ => { false }
+        }
+    }
+
+    pub fn is_instance_index(&self) -> bool {
+        return match self {
+            Obj(obj) => {obj.is_instance_index()}
             _ => { false }
         }
     }

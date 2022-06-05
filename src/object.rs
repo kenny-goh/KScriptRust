@@ -1,5 +1,5 @@
 use std::fmt;
-use crate::Object::{ClosureIndex, FunctionIndex, NativeFnIndex};
+use crate::Object::{ClassIndex, ClosureIndex, FunctionIndex, InstanceIndex, NativeFnIndex};
 use crate::object::Object::StringHash;
 
 #[derive(Copy, Clone, Debug)]
@@ -7,7 +7,9 @@ pub enum Object {
     StringHash(u32),                // StringHash is a pseudo 'pointer' to the string in the heap via the hash key
     FunctionIndex(usize),           // Function index is a pseudo 'pointer to a function in the heap via index number
     NativeFnIndex(usize),           // Native function index is pseudo 'pointer' to a native function in the heap via index number
-    ClosureIndex(usize)             // Closure index is a pseudo 'pointer' to a closure object in the heap via the index number
+    ClosureIndex(usize),            // Closure index is a pseudo 'pointer' to a closure object in the heap via  index number
+    ClassIndex(usize),              // Class index is a pseudo pointer to the class object in the heap via index number.
+    InstanceIndex(usize),           // Class instance index is a pseudo pointer to the class instance object in the heap via index number.
 }
 
 impl Object {
@@ -19,6 +21,8 @@ impl Object {
     }
     pub fn native_fn(idx: usize) -> Self { NativeFnIndex(idx) }
     pub fn closure(idx: usize) -> Self {ClosureIndex(idx) }
+    pub fn Class(idx: usize) -> Self { ClassIndex(idx) }
+    pub fn Instance(idx: usize) -> Self { InstanceIndex(idx) }
 
     pub fn as_string_hash(&self) ->u32 {
         return *if let StringHash(ob) = self { ob } else {
@@ -41,6 +45,18 @@ impl Object {
     pub fn as_closure_index(&self) ->usize {
         return *if let ClosureIndex(ob) = self { ob } else {
             panic!("Not a closure")
+        };
+    }
+
+    pub fn as_class_index(&self) ->usize {
+        return *if let ClassIndex(ob) = self { ob } else {
+            panic!("Not a class")
+        };
+    }
+
+    pub fn as_instance_index(&self) ->usize {
+        return *if let InstanceIndex(ob) = self { ob } else {
+            panic!("Not an instance")
         };
     }
 
@@ -70,6 +86,20 @@ impl Object {
             _ => false
         }
     }
+
+    pub fn is_class_index(&self) -> bool {
+        return match self {
+            ClassIndex(_) => { true }
+            _ => false
+        }
+    }
+
+    pub fn is_instance_index(&self) -> bool {
+        return match self {
+            InstanceIndex(_) => { true }
+            _ => false
+        }
+    }
     
 }
 
@@ -78,6 +108,9 @@ impl PartialEq for Object {
         match (&self, &other) {
             (StringHash(a), StringHash(b)) => a == b,
             (FunctionIndex(a), FunctionIndex(b)) => a == b,
+            (ClosureIndex(a), ClosureIndex(b)) => a == b,
+            (ClassIndex(a), ClassIndex(b)) => a == b,
+            (InstanceIndex(a), InstanceIndex(b)) => a == b,
             _ => false
         }
     }
@@ -96,7 +129,13 @@ impl fmt::Display for Object {
                 write!(f, "Native fn index {}", idx)
             }
             ClosureIndex(idx) => {
-                write!(f, "Closure fn index {}", idx)
+                write!(f, "Closure index {}", idx)
+            }
+            ClassIndex(idx) => {
+                write!(f, "Class index {}", idx)
+            }
+            InstanceIndex(idx) => {
+                write!(f, "Instance index {}", idx)
             }
         }
     }
