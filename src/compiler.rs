@@ -837,7 +837,7 @@ impl Parser {
     }
 
     fn dot(&mut self, can_assign: bool) {
-        self.consume(TokenType::Identifier, "Expect property nane after '.'.");
+        self.consume(TokenType::Identifier, "Expect field name after '.'.");
         let name = self.identifier_constant(&self.previous().lexeme);
         if can_assign && self.match_token_type(TokenType::Equal) {
             self.expression();

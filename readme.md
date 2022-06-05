@@ -1,6 +1,12 @@
-KScriptRust is a single pass compiler + virtual machine written in Rust.
+KScriptRust is a scripting language influenced by Javascript and Python. The language is implemented using 
+single pass compiler + virtual machine written in Rust.
 
-Why? Opportunity for me to improve my skills in Rust and also learn about writing a virtual machine.
+The implementation details of this language is based on the learnings from the Crafting Interpreters 
+book by Bob Nystrom.
+
+Why KScriptRust? 
+Firstly, this is an excuse for me to improve my skills in Rust as I am fascinated by Rust.  Secondly, I have always been curious with how virtual machine (such as Java virtual machine or CPython) is implemented, 
+this project is an opportunity for me to scratch that itch.
 
 ## Installation
 Install rust on your machine. Please refer to  https://www.rust-lang.org/
@@ -65,11 +71,85 @@ for (var i = 0; i < 30; i = i + 1) {
 ```
 For more examples, please refer to script subdirectory
 
+### Example byte codes (in disassembled mode)
+
+An example kscript program
+```shell
+print 10+10+20*50;
+for (var i = 0; i < 100; i = i + 1) { 
+  print i; 
+}
+```
+
+Compiled bytecodes
+```shell
+main
+Loc  | Line  | instruction          | const  | values
+   0 |     0 | op_constant          |      0 | 10
+   2 |     0 | op_constant          |      0 | 10
+   4 |     0 | op_add
+   5 |     0 | op_constant          |      1 | 20
+   7 |     0 | op_constant          |      2 | 50
+   9 |     0 | op_mul
+  10 |     0 | op_add
+  11 |     0 | op_print
+  12 |     1 | op_constant          |      3 | 0
+  14 |     1 | op_get_local         |      1 |
+  16 |     1 | op_constant          |      4 | 100
+  18 |     1 | op_less
+  19 |     1 | op_jump_if_false     | 19 => 43
+  22 |     1 | op_pop
+  23 |     1 | op_jump              | 23 => 37
+  26 |     1 | op_get_local         |      1 |
+  28 |     1 | op_constant          |      5 | 1
+  30 |     1 | op_add
+  31 |     1 | op_set_local         |      1 |
+  33 |     1 | op_pop
+  34 |     1 | op_loop              | 34 => 14
+  37 |     2 | op_get_local         |      1 |
+  39 |     2 | op_print
+  40 |     3 | op_loop              | 40 => 26
+  43 |     3 | op_pop
+  44 |     3 | op_pop
+  45 |     3 | op_nil
+  46 |     3 | op_return
+```
+
+## Grammar
+
+Statement
+* program -> declaration * EOF
+* statement -> expr_stmt | print_stmt | for | if | while | return
+* expr_stmt ->  expression “;”
+* print_stmt -> “print” expression “;”
+* block -> “{“ declaration * “}”
+* declaration -> fun_decl | var_decl | statement;
+* var_decl -> "var" IDENTIFIER;
+* fun_decl -> "fun" function;
+* function -> IDENTIFIER "(" parameters? ")" block;
+* parameters-> IDENTIFIER "(," IDENTIFIER ")"*;
+
+Expression
+* expression -> equality;
+* equality -> comparison ( (“!=”|”==”) comparison )*;
+* comparison -> term( (“>”|”>=”|”<”|”<=) term)*;
+* term-> factor( (“-”|”+”) factor)*;
+* factor-> unary( (“/”|”*”) unary)*;
+* literal -> number | string | “true” | “false” | “nil”;
+* unary -> (“-” | “!”) unary | primary;
+* binary -> expression operator expression;
+* operator -> “==” | “!=” | “<” | “<=” | “>” | “>=” | “+” | “-” | “*” | “/”;
+* primary -> number | string | “true” | “false” | “nil” | “(“ expression “)”;
+* arguments -> expression ( "," expression )*
+* call-> primary "("  arguments? ")" block
+
 ## Todos
 - Classes
 - GC (Partially working, will need to add for classes)
 - let operator (immutable variable)
 - lambda function
+- Array types 
+- Hashmap types
 - Outputting compiled machine code as [filename].bin
 - Non-blocking IO (using Tokio crate) 
 - Sockets
