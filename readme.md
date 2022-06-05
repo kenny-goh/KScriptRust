@@ -17,10 +17,10 @@ Install rust on your machine. Please refer to  https://www.rust-lang.org/
 cargo build --release # This will generate kscript binary in target/release
 
 # Run kscript in interactive mode
-./target/kscript_rust 
+./target/release/kscript_rust 
 
 # Run kscript with fibonacci script
-./target/kscript_rust ./script/fib.ks
+./target/release/kscript_rust ./script/fib.ks
 ```
 
 ## Example kscript program
