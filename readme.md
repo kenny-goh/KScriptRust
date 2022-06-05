@@ -16,11 +16,11 @@ Install rust on your machine. Please refer to  https://www.rust-lang.org/
 # Build Kscript 
 cargo build --release # This will generate kscript binary in target/release
 
-# Build and run kscript in interative mode
-cargo run --package kscript_rust --bin kscript_rust 
+# Run kscript in interactive mode
+./target/kscript_rust 
 
-# Build and run kscript with fibonacci script
-cargo run --package kscript_rust --bin kscript_rust ./script/fib.ks
+# Run kscript with fibonacci script
+./target/kscript_rust ./script/fib.ks
 ```
 
 ## Example kscript program
@@ -76,7 +76,7 @@ For more examples, please refer to script subdirectory
 An example kscript program
 ```shell
 print 10+10+20*50;
-for (var i = 0; i < 100; i = i + 1) { 
+for (var i = 0; i < 100; i += 1) { 
   print i; 
 }
 ```
