@@ -2,7 +2,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub type NativeFn = fn(u8, Vec<NativeValue>) -> NativeValue;
+pub type NativeFn = fn(usize, Vec<NativeValue>) -> NativeValue;
 
 pub enum NativeValue {
     String(String),
@@ -14,7 +14,7 @@ pub enum NativeValue {
 // fixme: Replace NativeValue with Result<NativeValue,Error>
 
 ///
-pub fn str_native(arg_count: u8, arguments: Vec<NativeValue>) -> NativeValue {
+pub fn str_native(arg_count: usize, arguments: Vec<NativeValue>) -> NativeValue {
     return match arguments.get(0).unwrap() {
         NativeValue::String(s) => NativeValue::String(s.to_string()),
         NativeValue::Number(n) => NativeValue::String(n.to_string()),
@@ -24,14 +24,14 @@ pub fn str_native(arg_count: u8, arguments: Vec<NativeValue>) -> NativeValue {
 }
 
 ///
-pub fn clock_native(arg_count: u8, arguments: Vec<NativeValue>) -> NativeValue {
+pub fn clock_native(arg_count: usize, arguments: Vec<NativeValue>) -> NativeValue {
     let start = SystemTime::now();
     let since_the_epoch = start.duration_since(UNIX_EPOCH);
     return NativeValue::Number(since_the_epoch.unwrap().as_secs_f64())
 }
 
 ///
-pub fn write_file_native(arg_count: u8, arguments: Vec<NativeValue>) -> NativeValue {
+pub fn write_file_native(arg_count: usize, arguments: Vec<NativeValue>) -> NativeValue {
 
     //fixme: check vec is equal to arg count
 
@@ -52,7 +52,7 @@ pub fn write_file_native(arg_count: u8, arguments: Vec<NativeValue>) -> NativeVa
     return NativeValue::Boolean(true);
 }
 
-pub fn append_file_native(arg_count: u8, arguments: Vec<NativeValue>) -> NativeValue {
+pub fn append_file_native(arg_count: usize, arguments: Vec<NativeValue>) -> NativeValue {
 
     //fixme: check vec is equal to arg count
 

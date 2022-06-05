@@ -1,8 +1,10 @@
 use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::BuildHasherDefault;
 use std::rc::Rc;
 use colored::Colorize;
+use fnv::FnvHashMap;
 
 use crate::{Heap, Object, Opcode, Value};
 use crate::callframe::CallFrame;
@@ -10,6 +12,7 @@ use crate::closure::{Closure, ObjUpvalue};
 use crate::function::Function;
 use crate::nativefn::{append_file_native, clock_native, NativeFn, NativeValue, str_native, write_file_native};
 
+const CHECK_GC_INTERVAL: usize =  5000;
 const MAX_CALLSTACK: usize = 256;
 const MAX_VALUE_STACK: usize = 256;
 const DEBUG: bool = true;
@@ -39,7 +42,7 @@ pub struct VM {
     pub ip: usize,                                          // instruction pointer
     pub stack: Vec<Value>,                                  // Hold computation values
     pub callstack: Vec<CallFrame>,                          // List of call frames
-    pub globals: HashMap<u32, Value>,                       // For global variables
+    pub globals: HashMap<u32, Value, nohash_hasher::BuildNoHashHasher<u32>>,
     pub heap: Heap,                                         // For memory management (using Rust Box construct)
     pub curr_func_idx: usize,                               // For caching current function pointer
     pub open_upvalues: Option<Rc<RefCell<ObjUpvalue>>>,      // For tracking open upvalues
@@ -54,7 +57,8 @@ impl VM {
             ip: 0,
             stack: vec![],
             callstack: vec![],
-            globals: Default::default(),
+            //globals: FnvHashMap::default(),
+            globals: HashMap::default(),
             heap: Heap::new(),
             curr_func_idx: 0,
             open_upvalues: None,
@@ -98,7 +102,7 @@ impl VM {
         self.push(Value::object(Object::function(func_main_idx)));
         let upvalue_count = self.heap.get_function(func_main_idx).upvalue_count;
         let closure_idx = self.new_closure(func_main_idx, upvalue_count);
-        self.pop(); // Pop the function
+        self.fpop(); // Pop the function
         self.push(Value::Obj(Object::ClosureIndex(closure_idx)));
         self.call(closure_idx,0);
         return self.run();
@@ -120,6 +124,11 @@ impl VM {
         return self.stack.get(self.stack_top).unwrap().clone();
     }
 
+    /// Fast pop without returning value
+    fn fpop(&mut self) {
+        self.stack_top -= 1;
+    }
+
     /// Run the VM
     fn run(&mut self)-> RunResult {
 
@@ -133,7 +142,6 @@ impl VM {
         loop {
             log!("LINE: {}", self.ip);
             log!("CALL STACK {:?}", &self.stack);
-
 
             let byte = self.read_byte();
 
@@ -160,7 +168,7 @@ impl VM {
                 }
                 Opcode::Pop => {
                     log!("OP POP");
-                    self.pop();
+                    self.fpop();
                 }
                 Opcode::DefineGlobal => {
                     log!("OP DEFINE GLOBAL VAR");
@@ -168,7 +176,7 @@ impl VM {
                     let str_hash = str.as_string_hash();
                     let value = *self.peek(0);
                     self.globals.insert(str_hash, value );
-                    self.pop();
+                    self.fpop();
                 }
                 Opcode::GetGlobal => {
                     log!("OP GET GLOBAL VAR");
@@ -182,9 +190,7 @@ impl VM {
                             self.runtime_error(&*message);
                             return RunResult::RuntimeError
                         }
-                        Some(content) => {
-                            (*content).clone()
-                        }
+                        Some(content) => (*content)
                     };
                     self.push(value);
                 }
@@ -241,8 +247,8 @@ impl VM {
                     let b = *self.peek(0);
                     let a = *self.peek(1);
                     if Self::is_both_number(&a, &b) {
-                        self.pop();
-                        self.pop();
+                        self.fpop();
+                        self.fpop();
                         self.push(Value::number(a.as_number() + b.as_number()));
                     } else if Self::is_both_string(&a, &b) {
                         let str_b = self.heap.get_string(a.as_string_hash());
@@ -256,13 +262,13 @@ impl VM {
 
                         let hash = self.heap.alloc_string(merged);
 
-                        self.pop();
-                        self.pop();
+                        self.fpop();
+                        self.fpop();
 
                         self.push(Value::object(Object::string(hash)));
                     }
                     else {
-                        self.runtime_error("Operands must be two numbers or two strings");
+                        self.runtime_error("Operands must be numbers or two strings");
                         return RunResult::RuntimeError
                     }
                 }
@@ -336,11 +342,11 @@ impl VM {
                 }
                 Opcode::Call => {
                     log!("OP CALL");
-                    let arg_count = self.read_byte();
-                    let last = self.callstack.len()-1;
+                    let arg_count = self.read_byte() as usize;
+                    let curr_callstack = self.callstack.len()-1;
                     // Store current ip
-                    self.callstack.get_mut(last).unwrap().ip = self.ip;
-                    if !self.call_value(*self.peek(arg_count as usize), arg_count) {
+                    self.callstack.get_mut(curr_callstack).unwrap().ip = self.ip;
+                    if !self.call_value(*self.peek(arg_count ), arg_count) {
                         return RunResult::RuntimeError;
                     }
                     let curr_frame = self.callstack.last().unwrap();
@@ -423,7 +429,7 @@ impl VM {
                     }
                 }
                 Opcode::CloseValue => {
-                    self.pop();
+                    self.fpop();
                     self.close_upvalues(self.stack_top-1);
                 }
                 Opcode::Return => {
@@ -433,7 +439,7 @@ impl VM {
                     let result = self.pop();
                     let frame_to_delete = self.callstack.pop().unwrap();
                     if self.callstack.is_empty() {
-                         self.pop(); // Pop main function
+                         self.fpop(); // Pop main function
                         // println!("profile duration is: {:?}", self._profile_duration);
                         return RunResult::Ok
                     }
@@ -441,7 +447,8 @@ impl VM {
                     // Discard call frame
                     let stack_len = self.stack_top;
                     for _ in frame_to_delete.slot_offset..stack_len {
-                        self.pop();
+                        //self.pop();
+                        self.fpop(); // performance-tuning
                     }
                     self.close_upvalues(frame_to_delete.slot_offset);
 
@@ -456,7 +463,7 @@ impl VM {
                 }
             }
 
-            if ip_counter % 5000 == 0 {
+            if ip_counter % CHECK_GC_INTERVAL == 0 {
                 self.try_run_garbage_collection();
             }
 
@@ -633,7 +640,7 @@ impl VM {
     /// Method to call a callable object. eg function, native function, instance method, etc..
     fn call_value(&mut self,
                   callee: Value,
-                  arg_count: u8)->bool {
+                  arg_count: usize)->bool {
         if callee.is_closure_index() {
             let closure_idx = callee.as_closure_index();
             return self.call(closure_idx, arg_count);
@@ -646,10 +653,10 @@ impl VM {
     }
 
     ///
-    fn call_native(&mut self, arg_count: u8, native_fn_idx: usize) ->bool {
+    fn call_native(&mut self, arg_count: usize, native_fn_idx: usize) ->bool {
         let mut native_values: Vec<NativeValue> = vec![];
         self.convert_args_to_native(arg_count, &mut native_values);
-        self.pop(); // pop function
+        self.fpop(); // pop function
         let native = self.heap.get_nativefn(native_fn_idx);
         let native_val: NativeValue = native(arg_count, native_values);
         let result = self.native_to_value(native_val);
@@ -671,8 +678,8 @@ impl VM {
     }
 
     ///
-    fn convert_args_to_native(&mut self, arg_count: u8, native_values: &mut Vec<NativeValue>) {
-        for _ in 0..arg_count as usize {
+    fn convert_args_to_native(&mut self, arg_count: usize, native_values: &mut Vec<NativeValue>) {
+        for _ in 0..arg_count {
             let value = self.pop();
             match value {
                 Value::Number(n) => native_values.push(NativeValue::Number(n)),
@@ -693,14 +700,20 @@ impl VM {
     /// Insert the call into the call stack
     fn call(&mut self,
             closure_idx: usize,
-            arg_count: u8) ->bool {
-        let arity = self.heap.get_function(self.heap.get_closure(closure_idx).func_idx).arity;
-        if arg_count as usize != arity {
+            arg_count: usize) -> bool {
+
+        let arity = unsafe {
+            // faster to use ptr
+            (*self.heap.functions[(*self.heap.closures[closure_idx].as_ptr()).func_idx].as_ptr()).arity
+        };
+        //let arity = self.heap.get_function(self.heap.get_closure(closure_idx).func_idx).arity;
+
+        if arg_count != arity {
             let message = format!("Expected {} arguments but got {}", arity, arg_count);
             self.runtime_error(&message);
         }
         let frame = CallFrame::new(closure_idx,
-                                   self.stack_top - 1 - arg_count as usize);
+                                   self.stack_top - 1 - arg_count);
         self.callstack.push(frame);
         return true;
     }
@@ -730,11 +743,11 @@ impl VM {
         let a = *self.peek(1);
 
         if Self::is_both_number(&a, &b) {
-            self.pop();
-            self.pop();
+            self.fpop();
+            self.fpop();
             self.push(Value::number(apply(a.as_number(), b.as_number())));
         } else {
-            self.runtime_error("Operands must be two numbers");
+            self.runtime_error("Operands must be numbers");
             return false;
         }
         return true;
@@ -751,7 +764,7 @@ impl VM {
             self.push(Value::bool(apply(a,b)));
         }
         else {
-            self.runtime_error("Operands must be two numbers");
+            self.runtime_error("Operands must be numbers");
             return false;
         }
         return true;
@@ -760,7 +773,6 @@ impl VM {
     fn close_upvalues(&mut self, frame_slot: usize) {
         while self.open_upvalues_location_greater_or_equal_to(&frame_slot) {
             let location = self.get_open_upvalues_location();
-            //let value = self.shadow_stack[location];
             let value = self.stack.get(location).unwrap().clone();
             self.close_upvalue(value);
             let next = if Self::has_next_upvalue(&mut self.open_upvalues) {
