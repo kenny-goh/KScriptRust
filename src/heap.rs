@@ -124,13 +124,16 @@ impl Heap {
         let closure_heap_len_before_gc = self.closures.len();
         let func_heap_len_before_gc = self.functions.len();
         let before_gc =  self.bytes_allocated as f32 / 1000000.0;
+
         self.sweep(marked);
         let after_gc = self.bytes_allocated as f32 / 1000000.0;
         self.next_gc = cmp::max(self.bytes_allocated * GC_FACTOR, INITIAL_SIZE);
+
         let next_gc = self.next_gc as f32 / 1000000.0;
         let string_heap_len_after_gc = self.strings.len();
         let closure_heap_len_after_gc = self.closures.len();
         let func_heap_len_after_gc = self.functions.len();
+
         println!("{} Freed memory from {:.2} MB to {:.2} MB, next GC at {:.2} MB.", "GC".bold().blue(), before_gc, after_gc, next_gc);
         if string_heap_len_before_gc != string_heap_len_after_gc {
             println!("{} Reduced string capacity from {} to {}", "GC".bold().blue(), string_heap_len_before_gc, string_heap_len_after_gc);
