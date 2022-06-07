@@ -40,7 +40,8 @@ pub enum Opcode {
     Class = 28,
     SetProperty = 29,
     GetProperty = 30,
-    Return = 31,
+    Method = 31,
+    Return = 32,
 }
 
 impl Opcode {

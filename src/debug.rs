@@ -40,6 +40,9 @@ fn constant_instruction(name: &str, chunk: &Chunk, heap: &Heap, offset: usize) -
                     let class = heap.get_class(class_idx);
                     println!("{: <20}", format!("<Instance {}>", class.name));
                 }
+                Object::BoundMethodIndex(idx) => {
+                    println!("{: <20}", format!("<BoundMethod {}>", idx));
+                }
             }
         }
         _ => {
@@ -191,6 +194,9 @@ fn disassemble_instruction(chunk: &Chunk, heap: &Heap, mut offset: usize) -> usi
         }
         Opcode::GetProperty => {
             return constant_instruction("op_get_property", chunk, heap, offset);
+        }
+        Opcode::Method => {
+            return constant_instruction("op_method", chunk, heap, offset);
         }
     }
 }

@@ -6,10 +6,9 @@ use fnv::{ FnvHashMap};
 
 use crate::{Heap, Object, Opcode, Value};
 use crate::callframe::CallFrame;
-use crate::class::Class;
+use crate::class::{BoundMethod, Class, Instance};
 use crate::closure::{Closure, ObjUpvalue};
 use crate::function::Function;
-use crate::instance::ClassInstance;
 use crate::nativefn::{append_file_native, clock_native, NativeFn, NativeValue, str_native, write_file_native};
 
 const CHECK_GC_INTERVAL: usize =  5000;
@@ -236,12 +235,14 @@ impl VM {
                 Opcode::GetProperty => {
                     let instance_idx = self.peek(0).as_instance_index();
                     let field_name_hash = self.read_string().as_string_hash();
-                    let field_name = self.heap.get_string(field_name_hash);
+                    let field_name = self.heap.get_string(field_name_hash).clone();
+                    let class_idx = self.heap.get_instance(instance_idx).class_idx;
                     if self.heap.get_instance(instance_idx).fields.contains_key(&field_name_hash) {
                         let value = self.heap.get_instance(instance_idx).fields.get(&field_name_hash).unwrap().clone();
                         self.fpop(); // instance
                         self.push(value);
-                    } else {
+                    }
+                    else if !self.bind_method(class_idx, field_name_hash) {
                         let error_text = format!("Undefined property {}", field_name);
                         self.runtime_error( &error_text );
                         return RunResult::RuntimeError;
@@ -463,6 +464,11 @@ impl VM {
                     let class_idx = self.heap.alloc_class(class);
                     self.push(Value::Obj(Object::ClassIndex(class_idx)));
                 }
+                Opcode::Method => {
+                    log!("OP METHOD");
+                    let string_hash = self.read_string().as_string_hash();
+                    self.define_method(string_hash);
+                }
                 Opcode::Return => {
                     log!("OP RETURN");
 
@@ -590,9 +596,17 @@ impl VM {
                         },
                         Object::InstanceIndex(idx) => {
                             let instance = self.heap.get_instance(idx);
-                            // Mark hash table
+                            // Mark fields hash table
                             roots.extend(instance.fields.values().cloned().collect::<Vec<Value>>());
                             for str_hash in instance.fields.keys() {
+                                roots.push(Value::Obj(Object::StringHash(*str_hash)));
+                            }
+                        },
+                        Object::ClassIndex(idx) => {
+                            let class = self.heap.get_class(idx);
+                            // Mark methods hash table
+                            roots.extend(class.methods.values().cloned().collect::<Vec<Value>>());
+                            for str_hash in class.methods.keys() {
                                 roots.push(Value::Obj(Object::StringHash(*str_hash)));
                             }
                         }
@@ -681,12 +695,17 @@ impl VM {
     fn call_value(&mut self,
                   callee: Value,
                   arg_count: usize)->bool {
-        if callee.is_closure_index() {
+        if callee.is_bound_method_index() {
+            let bound_idx = callee.as_bound_method_index();
+            let closure_idx = self.heap.get_bound_method(bound_idx).closure_idx;
+            return self.call(closure_idx, arg_count);
+        }
+        else if callee.is_closure_index() {
             let closure_idx = callee.as_closure_index();
             return self.call(closure_idx, arg_count);
         } else if callee.is_class_index() {
             let class_idx = callee.as_class_index();
-            let instance_idx = self.heap.alloc_instance(ClassInstance::new(class_idx));
+            let instance_idx = self.heap.alloc_instance(Instance::new(class_idx));
             let stack_idx = self.stack_top as isize -(arg_count as isize) - 1;
             self.stack[stack_idx as usize] = Value::Obj(Object::InstanceIndex(instance_idx));
             return true;
@@ -853,5 +872,27 @@ impl VM {
             .as_ref()            // reference the content inside RC
             .borrow()            // borrow upvalue object
             .location.unwrap()   // unwrap option of location
+    }
+
+    fn define_method(&mut self, string_hash: u32) {
+        let method = self.peek(0);
+        let class_idx = self.peek(1).as_class_index();
+        self.heap.get_mut_class(class_idx).methods.insert(string_hash, *method);
+        self.pop();
+    }
+
+    fn bind_method(&mut self, class_idx: usize, name_hash: u32) -> bool {
+        if !self.heap.get_class(class_idx).methods.contains_key(&name_hash) {
+            let name = self.heap.get_string(name_hash);
+            let error_text = format!("Undefined property {}", name);
+            self.runtime_error(&error_text);
+            return false
+        }
+        let closure_idx = self.heap.get_class(class_idx).methods.get(&name_hash).unwrap().as_closure_index();
+        let bound_method_idx = self.heap.alloc_bound_method(
+            BoundMethod::new(*self.peek(0), closure_idx));
+        self.pop();
+        self.push(Value::Obj(Object::BoundMethodIndex(bound_method_idx)));
+        return true;
     }
 }
