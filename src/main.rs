@@ -28,7 +28,6 @@ mod debug;
 mod nativefn;
 mod closure;
 mod class;
-mod instance;
 mod tests;
 
 /// Main entry point to KScript VM

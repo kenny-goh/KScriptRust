@@ -7,11 +7,10 @@ use std::mem;
 use colored::Colorize;
 
 use crate::{Value};
-use crate::class::Class;
+use crate::class::{BoundMethod, Class, Instance};
 use crate::function::Function;
 use crate::nativefn::NativeFn;
 use crate::closure::Closure;
-use crate::instance::ClassInstance;
 use crate::utils::hash_string;
 
 const GC_FACTOR: usize = 2;
@@ -40,8 +39,11 @@ pub struct Heap {
     /// Storage for classes
     pub classes: Vec<RefCell<Class>>,
     /// Storage for class instances
-    pub instances: Vec<RefCell<ClassInstance>> // fixme: this should be a hash map with unique identifier for each instance
+    pub instances: Vec<RefCell<Instance>>, // fixme: this should be a hash map with unique identifier for each instance
+    /// Storage for bound methods
+    pub bound_methods: Vec<BoundMethod>
 }
+
 
 impl Heap {
     pub fn new() ->Self {
@@ -53,7 +55,8 @@ impl Heap {
             native_fns: vec![],
             closures: vec![],
             classes: vec![],
-            instances: vec![]
+            instances: vec![],
+            bound_methods: vec![]
         }
     }
 
@@ -106,11 +109,20 @@ impl Heap {
     }
 
     /// Allocate instance
-    pub fn alloc_instance(&mut self, instance: ClassInstance)->usize {
+    pub fn alloc_instance(&mut self, instance: Instance) ->usize {
         let size = mem::size_of_val(&instance);
         self.bytes_allocated += size;
         let size = self.instances.len();
         self.instances.push(RefCell::new(instance));
+        return size;
+    }
+
+    /// Allocate bound method
+    pub fn alloc_bound_method(&mut self, bound_method: BoundMethod) -> usize {
+        let size = mem::size_of_val(&bound_method);
+        self.bytes_allocated += size;
+        let size = self.bound_methods.len();
+        self.bound_methods.push(bound_method);
         return size;
     }
 
@@ -277,10 +289,13 @@ impl Heap {
     pub fn get_class(&self, idx: usize) -> Ref<'_, Class> { self.classes[idx].borrow() }
 
     /// Mutator instance class via index number
-    pub fn get_mut_instance(&self, idx: usize) -> RefMut<'_, ClassInstance> { self.instances[idx].borrow_mut() }
+    pub fn get_mut_instance(&self, idx: usize) -> RefMut<'_, Instance> { self.instances[idx].borrow_mut() }
 
     /// Non mutator access instance via index number
-    pub fn get_instance(&self, idx: usize) -> Ref<'_, ClassInstance> { self.instances[idx].borrow() }
+    pub fn get_instance(&self, idx: usize) -> Ref<'_, Instance> { self.instances[idx].borrow() }
+
+    /// Non mutator access instance via index number
+    pub fn get_bound_method(&self, idx: usize) -> &BoundMethod { &self.bound_methods[idx] }
 
     /// Clear the heap - for testing only
     pub fn clear(&mut self) {
