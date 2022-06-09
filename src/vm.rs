@@ -18,7 +18,7 @@ const DEBUG: bool = true;
 
 #[cfg(debug_assertions)]
 macro_rules! log {
-    ($( $args:expr ),*) => { /*println!( $( $args ),* ); */ }
+    ($( $args:expr ),*) => { /*println!( $( $args ),* );*/  }
 }
 
 // Non-debug version
@@ -392,6 +392,21 @@ impl VM {
                         println!("{}", content);
                     }
                 }
+                Opcode::Invoke => {
+                    log!("OP INVOKE");
+                    let method_name_hash = self.read_string().as_string_hash();
+                    let arg_count = self.read_byte() as usize;
+                    let curr_callstack = self.callstack.len()-1;
+                    // Store current ip
+                    self.callstack.get_mut(curr_callstack).unwrap().ip = self.ip;
+                    if !self.invoke(method_name_hash, arg_count) {
+                        return RunResult::RuntimeError
+                    }
+                    let curr_frame = self.callstack.last().unwrap();
+                    self.ip = curr_frame.ip;
+                    // Cached the function ptr from the current callstack
+                    self.curr_func_idx = self.heap.get_closure(curr_frame.closure_idx).func_idx;
+                }
                 Opcode::Closure => {
                     log!("OP CLOSURE");
                     let func_idx = self.read_constant().as_function_index();
@@ -496,7 +511,6 @@ impl VM {
 
                     // Load the correct ip;
                     self.ip = self.callstack.last().unwrap().ip;
-
                     // Cached the function ptr from the current callstack
                     self.curr_func_idx = self.heap.get_closure(self.callstack.last().unwrap().closure_idx).func_idx;
                 }
@@ -910,5 +924,30 @@ impl VM {
         self.pop();
         self.push(Value::Obj(Object::BoundMethodIndex(bound_method_idx)));
         return true;
+    }
+    fn invoke(&mut self, method_name_hash: u32, arg_count: usize) -> bool {
+        let receiver = self.peek(arg_count);
+        if !receiver.is_instance_index() {
+            self.runtime_error("Only instances have methods");
+            return false;
+        }
+        let instance_idx = receiver.as_instance_index();
+        if self.heap.get_instance(instance_idx).fields.contains_key(&method_name_hash) {
+            let value = self.heap.get_instance(instance_idx).fields.get(&method_name_hash).unwrap().clone();
+            self.stack[self.stack_top - arg_count - 1] = value;
+            return self.call_value(value, arg_count);
+        }
+        let class_idx = self.heap.get_instance(instance_idx).class_idx;
+        return self.invoke_from_class(class_idx, method_name_hash, arg_count);
+    }
+    fn invoke_from_class(&mut self, class_idx: usize, method_name_hash: u32, arg_count: usize) -> bool {
+        if !self.heap.get_class(class_idx).methods.contains_key(&method_name_hash) {
+            let property = self.heap.get_string(method_name_hash);
+            let format = format!("Undefined property '{}'", &property);
+            self.runtime_error(&format);
+            return false;
+        }
+        let method = self.heap.get_class(class_idx).methods.get(&method_name_hash).unwrap().clone();
+        return self.call(method.as_closure_index(), arg_count);
     }
 }

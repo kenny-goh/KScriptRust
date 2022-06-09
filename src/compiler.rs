@@ -882,7 +882,12 @@ impl Parser {
         if can_assign && self.match_token_type(TokenType::Equal) {
             self.expression();
             self.emit_bytes(Opcode::SetProperty.byte(), name);
-        } else {
+        } else if self.match_token_type(TokenType::LeftParen) {
+            let arg_count = self.argument_list();
+            self.emit_bytes(Opcode::Invoke.byte(), name);
+            self.emit_byte(arg_count);
+        }
+        else {
             self.emit_bytes(Opcode::GetProperty.byte(), name);
         }
     }

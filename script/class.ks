@@ -11,7 +11,6 @@ class Dude {
 }
 
 var dude = Dude();
-print "Name: " + dude.name;
 dude.greet("Alex");
 dude.printName();
 
