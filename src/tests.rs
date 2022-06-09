@@ -690,6 +690,28 @@ fn test_class_instance_init() {
     }
 }
 
+#[test]
+#[serial]
+fn test_class_instance_invoke() {
+    let code = r#"
+        class Test {
+          init() {
+            fun f() {
+              return "this is a function";
+            }
+            this.field = f;
+          }
+        }
+        var t = Test();
+        var _result = t.field();
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("this is a function", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
 
 // todo: garbage collection tests
 

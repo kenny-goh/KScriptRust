@@ -58,6 +58,14 @@ fn  byte_instruction(name: &str, chunk: &Chunk, offset: usize)->usize {
     return offset + 2;
 }
 
+fn invoke_instruction(name: &str, chunk: &Chunk, offset: usize)->usize {
+    let constant = chunk.code[offset + 1];
+    let arg_count = chunk.code[offset + 2];
+    println!("{: <20} | {: >6} | {: >4}", name, arg_count, constant);
+    println!("{}", chunk.constants[constant as usize]);
+    return offset + 3;
+}
+
 #[allow(arithmetic_overflow)]
 fn  jump_instruction(name: &str, sign: isize, chunk: &Chunk, offset: usize)->usize {
     let mut jump:u32 = (chunk.code[offset + 1] as u32) << 8;
@@ -197,6 +205,9 @@ fn disassemble_instruction(chunk: &Chunk, heap: &Heap, mut offset: usize) -> usi
         }
         Opcode::Method => {
             return constant_instruction("op_method", chunk, heap, offset);
+        }
+        Opcode::Invoke => {
+            return invoke_instruction("op_invoke", chunk, offset);
         }
     }
 }
