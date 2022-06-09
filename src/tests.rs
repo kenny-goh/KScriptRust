@@ -586,7 +586,7 @@ fn test_closure_complex_2() {
 
 #[test]
 #[serial]
-fn test_klass_instance_properties() {
+fn test_class_instance_properties() {
     let code = r#"
         class Dude {}
         var dude = Dude();
@@ -601,6 +601,94 @@ fn test_klass_instance_properties() {
     }
 }
 
+#[test]
+#[serial]
+fn test_class_instance_method() {
+    let code = r#"
+        class Foo {
+          bar() {
+            return "bar";
+          }
+        }
+        var f = Foo();
+        var _result = f.bar();
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("bar", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+#[test]
+#[serial]
+fn test_class_instance_method_with_parameter() {
+    let code = r#"
+        class Foo {
+          hi(person) {
+            return "Hi " + person;
+          }
+        }
+        var f = Foo();
+        var _result = f.hi("Wayne");
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("Hi Wayne", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+
+#[test]
+#[serial]
+fn test_class_instance_this() {
+    let code = r#"
+        class Foo {
+          getName() {
+            return this.name;
+          }
+        }
+        var f = Foo();
+        f.name = "Foo";
+        var _result = f.getName();
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("Foo", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+
+#[test]
+#[serial]
+#[should_panic]
+fn test_class_instance_this_outside_method() {
+    let code = r#"
+        this; // this is illegal
+    "#.to_string();
+    run_code(&code);
+}
+
+#[test]
+#[serial]
+fn test_class_instance_init() {
+    let code = r#"
+        class Foo {
+          init() {
+            this.name = "Foo";
+          }
+        }
+        var f = Foo();
+        var _result = f.name;
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("Foo", str),
+        Err(_) => panic!("Failed")
+    }
+}
 
 
 // todo: garbage collection tests

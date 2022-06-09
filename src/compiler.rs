@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::{fmt, mem};
+use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefMut;
 
 use crate::function::{Function};
@@ -9,13 +10,14 @@ use crate::token::{Token, TokenType};
 use crate::debug::disassemble_chunk;
 
 static DEBUG_MACHINE_CODE: bool = true;
-
 static MAX_UPVALUE_COUNT: usize = 256;
 
 #[derive(Copy, Clone)]
 pub enum FunctionType {
     Main,
     Function,
+    Method,
+    Initializer,
 }
 impl fmt::Display for FunctionType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -25,6 +27,12 @@ impl fmt::Display for FunctionType {
             }
             FunctionType::Function => {
                 write!(f, "<Function>")
+            }
+            FunctionType::Method => {
+                write!(f, "<Method>")
+            }
+            FunctionType::Initializer => {
+                write!(f, "<Initializer>")
             }
         }
     }
@@ -78,12 +86,18 @@ impl Compiler {
     pub fn new(enclosing: usize,
                function_idx: usize,
                function_type: FunctionType) -> Self {
+
+        let local = match function_type {
+            FunctionType::Method => Local::from("this".to_string(),0),
+            FunctionType::Initializer => Local::from("this".to_string(),0),
+            _ => Local::from("".to_string(),0)
+        };
         Compiler {
             enclosing,
             function_idx,
             function_type,
             scope_depth: 0,
-            locals: vec![Local::from("".to_string(), 0)],
+            locals: vec![local],
             upvalues: vec![]
         }
     }
@@ -94,6 +108,20 @@ impl Compiler {
 
     pub fn add_upvalues(&mut self, index: usize, is_local: bool) {
         self.upvalues.push(Upvalue::new(index, is_local));
+    }
+
+}
+
+
+struct ClassCompiler {
+    pub enclosing: Option<Box<ClassCompiler>>
+}
+
+impl ClassCompiler {
+    pub fn new(enclosing: Option<Box<ClassCompiler>>) -> Self {
+        ClassCompiler{
+            enclosing
+        }
     }
 
 }
@@ -128,6 +156,7 @@ enum ParseFn {
     And,
     Or,
     Dot,
+    This,
 }
 
 #[derive(Copy, Clone)]
@@ -164,6 +193,7 @@ pub struct Parser {
     function_arity: usize,
     /// Index to the compiler instances inside compilers
     curr_compiler_index: usize,
+    current_class: Option<Box<ClassCompiler>>,
     /// For memory management using Rust Box construct
     pub heap: Heap,
     /// Parse rules for precedence based on Pratt algorithm
@@ -181,6 +211,7 @@ impl Parser {
             tokens,
             function_arity: 0,
             curr_compiler_index: usize::MAX, // MAX means null
+            current_class: None,
             heap,
             parse_rules: HashMap::from([
                 (TokenType::LeftParen, ParseRule::from(ParseFn::Grouping, ParseFn::Call, Precedence::Call)),
@@ -203,6 +234,7 @@ impl Parser {
                 (TokenType::And, ParseRule::from(ParseFn::None, ParseFn::And, Precedence::And)),
                 (TokenType::Or, ParseRule::from(ParseFn::None, ParseFn::Or, Precedence::Or)),
                 (TokenType::False, ParseRule::from(ParseFn::Literal, ParseFn::None, Precedence::None)),
+                (TokenType::This, ParseRule::from(ParseFn::This, ParseFn::None, Precedence::None)),
                 (TokenType::True, ParseRule::from(ParseFn::Literal, ParseFn::None, Precedence::None)),
                 (TokenType::Nil, ParseRule::from(ParseFn::Literal, ParseFn::None, Precedence::None))
             ]),
@@ -366,7 +398,14 @@ impl Parser {
 
     /// Shortcut for writing return statement to function chunk
     fn emit_return(&mut self) {
-        self.emit_byte(Opcode::Nil.byte());
+        match self.current_compiler().function_type {
+            FunctionType::Initializer => {
+                self.emit_bytes(Opcode::GetLocal.byte(), 0);
+            }
+            _ => {
+                self.emit_byte(Opcode::Nil.byte());
+            }
+        }
         self.emit_byte(Opcode::Return.byte());
     }
 
@@ -439,7 +478,7 @@ impl Parser {
 
         let function_name = match function_type {
             FunctionType::Main => "Main".to_string(),
-            FunctionType::Function => self.previous().lexeme.to_string(),
+            _ => self.previous().lexeme.to_string(),
         };
 
         let function = Function::new(function_name, self.function_arity);
@@ -645,7 +684,8 @@ impl Parser {
             ParseFn::Literal => self.literal(),
             ParseFn::And => self.and(),
             ParseFn::Or => self.or(),
-            ParseFn::Dot => self.dot(can_assign)
+            ParseFn::Dot => self.dot(can_assign),
+            ParseFn::This => self.this()
         }
         return true;
     }
@@ -880,6 +920,10 @@ impl Parser {
             if self.match_token_type(TokenType::Semicolon) {
                 self.emit_return();
             } else {
+                match self.current_compiler().function_type {
+                    FunctionType::Initializer => {self.error("Can't return value from an initializer.")}
+                    _ => {}
+                }
                 self.expression();
                 self.consume(TokenType::Semicolon, "Expect ';' after return value.");
                 self.emit_byte(Opcode::Return.byte());
@@ -1011,6 +1055,10 @@ impl Parser {
 
         self.emit_bytes(Opcode::Class.byte(), name_constant);
         self.define_variable(name_constant);
+
+        let mut class_compiler = Some(Box::new(ClassCompiler::new(self.current_class.take())));
+        self.current_class = class_compiler;
+
         self.named_variable(class_name, false);
 
         self.consume(TokenType::LeftBrace, "Expect '{' before class body");
@@ -1018,15 +1066,42 @@ impl Parser {
             self.method();
         }
         self.consume(TokenType::RightBrace, "Expect '}' after class body.");
-        self.emit_byte(Opcode::Pop.byte()) // pop class name
+        self.emit_byte(Opcode::Pop.byte()); // pop class name
+
+
+        self.current_class = self.enclosing_class()
+    }
+
+    fn enclosing_class(&mut self) -> Option<Box<ClassCompiler>> {
+        match self.current_class.take() {
+            Some(it) => {
+                match it.enclosing {
+                    Some(it2) => { Some(Box::new(*it2)) }
+                    None => None
+                }
+            },
+            None => None,
+        }
     }
 
     fn method(&mut self) {
         self.consume(TokenType::Identifier, "Expect a method name.");
         let constant = self.identifier_constant(&self.previous().lexeme);
-        let func_type = FunctionType::Function;
+        let func_type = if self.previous().lexeme == "init" {
+            FunctionType::Initializer
+        } else {
+            FunctionType::Method
+        };
         self.function(func_type);
         self.emit_bytes(Opcode::Method.byte(), constant);
+    }
+
+    fn this(&mut self) {
+        if (self.current_class.is_none()) {
+            self.error("Can't use 'this' outside of class");
+            return;
+        }
+        self.variable(false);
     }
 }
 
