@@ -165,7 +165,7 @@ fn disassemble_instruction(chunk: &Chunk, heap: &Heap, mut offset: usize) -> usi
             let constant = chunk.code[offset] as usize;
             offset += 1;
             let value = chunk.constants[constant];
-            print!("{:>4} {:>5 }", "OP_CLOSURE" , constant);
+            print!("{:>4} {:>5 }", "op_closure" , constant);
             println!("  {:>10}", value);
             let func_index = value.as_function_index();
             let function = heap.get_mut_function(func_index);

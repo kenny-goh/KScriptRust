@@ -1,5 +1,4 @@
 extern crate core;
-
 use std::{env, fs, mem};
 use std::process::exit;
 use std::time::{Instant};

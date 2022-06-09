@@ -1,9 +1,17 @@
 class Dude {
+    init() {
+      this.name = "Foo man";
+    }
     greet(name) {
        print "Hi " + name + "!";
     }
+    printName() {
+      print "Name is: " + this.name;
+    }
 }
+
 var dude = Dude();
-dude.name = "Foo man";
-print dude.name;
+print "Name: " + dude.name;
 dude.greet("Alex");
+dude.printName();
+

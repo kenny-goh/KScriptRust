@@ -46,6 +46,7 @@ pub struct VM {
     pub curr_func_idx: usize,                               // For caching current function pointer
     pub open_upvalues: Option<Rc<RefCell<ObjUpvalue>>>,      // For tracking open upvalues
     pub stack_top: usize,
+    pub init_string_hash: u32,
     // pub _profile_duration: Duration                      // For testing
 }
 
@@ -60,7 +61,8 @@ impl VM {
             heap: Heap::new(),
             curr_func_idx: 0,
             open_upvalues: None,
-            stack_top: 0
+            stack_top: 0,
+            init_string_hash: 0
             // _profile_duration: Default::default()
         }
     }
@@ -81,6 +83,7 @@ impl VM {
         self.define_native("writeFile", write_file_native);
         self.define_native("appendFile", append_file_native);
         self.define_native("str", str_native);
+        self.init_string_hash = self.heap.alloc_string("init".to_string());
     }
 
     /// Report run time error
@@ -629,6 +632,7 @@ impl VM {
         for callframe in &self.callstack {
             roots.push(Value::Obj(Object::ClosureIndex(callframe.closure_idx)));
         }
+        roots.push(Value::object(Object::StringHash(self.init_string_hash)));
     }
 
     /// Shortcut for checking both strings are string hash
@@ -697,6 +701,7 @@ impl VM {
                   arg_count: usize)->bool {
         if callee.is_bound_method_index() {
             let bound_idx = callee.as_bound_method_index();
+            self.stack[self.stack_top - arg_count - 1] = self.heap.get_bound_method(bound_idx).receiver;
             let closure_idx = self.heap.get_bound_method(bound_idx).closure_idx;
             return self.call(closure_idx, arg_count);
         }
@@ -706,13 +711,24 @@ impl VM {
         } else if callee.is_class_index() {
             let class_idx = callee.as_class_index();
             let instance_idx = self.heap.alloc_instance(Instance::new(class_idx));
-            let stack_idx = self.stack_top as isize -(arg_count as isize) - 1;
+            let stack_idx = self.stack_top as isize - (arg_count as isize) - 1;
             self.stack[stack_idx as usize] = Value::Obj(Object::InstanceIndex(instance_idx));
+
+            if self.heap.get_class(class_idx).methods.contains_key(&self.init_string_hash) {
+                let initializer = self.heap.get_mut_class(class_idx).methods.get(&self.init_string_hash).unwrap().clone();
+                return self.call(initializer.as_closure_index(),arg_count);
+            } else if (arg_count != 0) {
+                let format = format!("Expect 0 arguments but got {}", arg_count);
+                self.runtime_error(&format);
+                return false;
+            }
+
             return true;
         } else if callee.is_nativefn_index() {
             let native_fn_idx = callee.as_nativefn_index();
             return self.call_native(arg_count, native_fn_idx);
         }
+
         self.runtime_error("Can only call function and classes.");
         return false;
     }
