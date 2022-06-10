@@ -79,12 +79,6 @@ impl Value {
         };
     }
 
-    pub fn as_bound_method_index(&self) ->usize {
-        return if let Obj(ob) = self { ob.as_bound_method_index() } else {
-            panic!("Not a bound method")
-        };
-    }
-
     pub fn is_number(&self) ->bool {
         return match self {
             Number(_) => { true }
@@ -144,14 +138,6 @@ impl Value {
             _ => { false }
         }
     }
-
-    pub fn is_bound_method_index(&self) -> bool {
-        return match self {
-            Obj(obj) => {obj.is_bound_method_index()}
-            _ => { false }
-        }
-    }
-
 }
 
 impl PartialEq for Value {

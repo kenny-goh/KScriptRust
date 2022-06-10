@@ -1,4 +1,3 @@
-use serial_test::serial;
 use std::{fs, mem, thread, time};
 use std::fmt::Error;
 use crate::{Heap, Parser, RunResult, Scanner, VM};

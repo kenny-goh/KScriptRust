@@ -40,9 +40,6 @@ fn constant_instruction(name: &str, chunk: &Chunk, heap: &Heap, offset: usize) -
                     let class = heap.get_class(class_idx);
                     println!("{: <20}", format!("<Instance {}>", class.name));
                 }
-                Object::BoundMethodIndex(idx) => {
-                    println!("{: <20}", format!("<BoundMethod {}>", idx));
-                }
             }
         }
         _ => {

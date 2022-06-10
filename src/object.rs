@@ -1,5 +1,5 @@
 use std::fmt;
-use crate::Object::{BoundMethodIndex, ClassIndex, ClosureIndex, FunctionIndex, InstanceIndex, NativeFnIndex};
+use crate::Object::{ClassIndex, ClosureIndex, FunctionIndex, InstanceIndex, NativeFnIndex};
 use crate::object::Object::StringHash;
 
 #[derive(Copy, Clone, Debug)]
@@ -10,7 +10,6 @@ pub enum Object {
     ClosureIndex(usize),            // Closure index is a pseudo 'pointer' to a closure object in the heap via  index number
     ClassIndex(usize),              // Class index is a pseudo pointer to the class object in the heap via index number.
     InstanceIndex(usize),           // Class instance index is a pseudo pointer to the class instance object in the heap via index number.
-    BoundMethodIndex(usize),
 }
 
 impl Object {
@@ -24,7 +23,6 @@ impl Object {
     pub fn closure(idx: usize) -> Self {ClosureIndex(idx) }
     pub fn Class(idx: usize) -> Self { ClassIndex(idx) }
     pub fn Instance(idx: usize) -> Self { InstanceIndex(idx) }
-    pub fn BoundMethod(idx: usize) -> Self { BoundMethodIndex(idx) }
 
     pub fn as_string_hash(&self) ->u32 {
         return *if let StringHash(ob) = self { ob } else {
@@ -62,11 +60,6 @@ impl Object {
         };
     }
 
-    pub fn as_bound_method_index(&self) ->usize {
-        return *if let BoundMethodIndex(ob) = self { ob } else {
-            panic!("Not a bound method")
-        };
-    }
 
     pub fn is_string_hash(&self) ->bool {
         return match self {
@@ -108,14 +101,6 @@ impl Object {
             _ => false
         }
     }
-
-    pub fn is_bound_method_index(&self) -> bool {
-        return match self {
-            BoundMethodIndex(_) => { true }
-            _ => false
-        }
-    }
-    
 }
 
 impl PartialEq for Object {
@@ -126,7 +111,6 @@ impl PartialEq for Object {
             (ClosureIndex(a), ClosureIndex(b)) => a == b,
             (ClassIndex(a), ClassIndex(b)) => a == b,
             (InstanceIndex(a), InstanceIndex(b)) => a == b,
-            (BoundMethodIndex(a), BoundMethodIndex(b)) => a == b,
             _ => false
         }
     }
@@ -152,9 +136,6 @@ impl fmt::Display for Object {
             }
             InstanceIndex(idx) => {
                 write!(f, "Instance index {}", idx)
-            }
-            BoundMethodIndex(idx) => {
-                write!(f, "Bound method index {}", idx)
             }
         }
     }

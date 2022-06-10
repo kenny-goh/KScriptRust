@@ -736,13 +736,6 @@ impl VM {
     fn call_value(&mut self,
                   callee: Value,
                   arg_count: usize)->bool {
-        // if callee.is_bound_method_index() {
-        //     let bound_idx = callee.as_bound_method_index();
-        //     self.stack[self.stack_top - arg_count - 1] = self.heap.get_bound_method(bound_idx).receiver;
-        //     let closure_idx = self.heap.get_bound_method(bound_idx).closure_idx;
-        //     return self.call(closure_idx, arg_count);
-        // }
-        // else
         if callee.is_closure_index() {
             let closure_idx = callee.as_closure_index();
             return self.call(closure_idx, arg_count);
