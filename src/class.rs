@@ -28,18 +28,3 @@ impl Instance {
         }
     }
 }
-
-pub struct BoundMethod {
-    pub receiver: Value,
-    pub closure_idx: usize
-}
-
-
-impl BoundMethod {
-    pub fn new(receiver: Value, closure_idx: usize) ->Self {
-        BoundMethod {
-            receiver,
-            closure_idx
-        }
-    }
-}

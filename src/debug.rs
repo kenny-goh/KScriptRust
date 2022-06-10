@@ -209,5 +209,11 @@ fn disassemble_instruction(chunk: &Chunk, heap: &Heap, mut offset: usize) -> usi
         Opcode::Invoke => {
             return invoke_instruction("op_invoke", chunk, offset);
         }
+        Opcode::Inherit => {
+            return simple_instruction("op_inherit", offset);
+        }
+        Opcode::SuperInvoke => {
+            return invoke_instruction("op_super_invoke", chunk, offset);
+        }
     }
 }

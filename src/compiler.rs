@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::{fmt, mem};
-use std::borrow::{Borrow, BorrowMut};
-use std::cell::RefMut;
+use std::borrow::BorrowMut;
+use std::cell::{RefCell, RefMut};
 
 use crate::function::{Function};
 use crate::{Heap, Object, Opcode, Value};
@@ -114,13 +114,15 @@ impl Compiler {
 
 
 struct ClassCompiler {
-    pub enclosing: Option<Box<ClassCompiler>>
+    pub enclosing: Option<Box<RefCell<ClassCompiler>>>,
+    pub has_superclass: bool
 }
 
 impl ClassCompiler {
-    pub fn new(enclosing: Option<Box<ClassCompiler>>) -> Self {
+    pub fn new(enclosing: Option<Box<RefCell<ClassCompiler>>>) -> Self {
         ClassCompiler{
-            enclosing
+            enclosing,
+            has_superclass: false
         }
     }
 
@@ -157,6 +159,7 @@ enum ParseFn {
     Or,
     Dot,
     This,
+    Super,
 }
 
 #[derive(Copy, Clone)]
@@ -193,7 +196,7 @@ pub struct Parser {
     function_arity: usize,
     /// Index to the compiler instances inside compilers
     curr_compiler_index: usize,
-    current_class: Option<Box<ClassCompiler>>,
+    current_class: Option<Box<RefCell<ClassCompiler>>>,
     /// For memory management using Rust Box construct
     pub heap: Heap,
     /// Parse rules for precedence based on Pratt algorithm
@@ -234,6 +237,7 @@ impl Parser {
                 (TokenType::And, ParseRule::from(ParseFn::None, ParseFn::And, Precedence::And)),
                 (TokenType::Or, ParseRule::from(ParseFn::None, ParseFn::Or, Precedence::Or)),
                 (TokenType::False, ParseRule::from(ParseFn::Literal, ParseFn::None, Precedence::None)),
+                (TokenType::Super, ParseRule::from(ParseFn::Super, ParseFn::None, Precedence::None)),
                 (TokenType::This, ParseRule::from(ParseFn::This, ParseFn::None, Precedence::None)),
                 (TokenType::True, ParseRule::from(ParseFn::Literal, ParseFn::None, Precedence::None)),
                 (TokenType::Nil, ParseRule::from(ParseFn::Literal, ParseFn::None, Precedence::None))
@@ -639,7 +643,7 @@ impl Parser {
         let can_assign = precedence <= Precedence::Assignment;
 
         if self.call_rule_function(&mut prefix_rule, can_assign) == false {
-            return;
+            panic!("");
         }
 
         loop {
@@ -652,6 +656,7 @@ impl Parser {
             if precedence > precedence_rule.unwrap() {
                 break;
             }
+
             self.advance();
             let infix_rule_option = self.parse_rules.get(&self.previous().token_type);
             let mut infix_rule: Option<ParseFn> = Some(ParseFn::None);
@@ -685,7 +690,8 @@ impl Parser {
             ParseFn::And => self.and(),
             ParseFn::Or => self.or(),
             ParseFn::Dot => self.dot(can_assign),
-            ParseFn::This => self.this()
+            ParseFn::This => self.this(),
+            ParseFn::Super => self.super_()
         }
         return true;
     }
@@ -716,7 +722,7 @@ impl Parser {
     }
 
     fn variable(&mut self, can_assign: bool) {
-        self.named_variable(self.previous(), can_assign);
+        self.named_variable(&self.previous(), can_assign);
     }
 
     fn statement(&mut self) {
@@ -958,19 +964,19 @@ impl Parser {
         return arg_count;
     }
 
-    fn named_variable(&mut self, token: Token, can_assign: bool) {
+    fn named_variable(&mut self, token: &Token, can_assign: bool) {
 
         let mut set_op: u8 = Opcode::SetGlobal.byte();
         let mut get_op: u8 = Opcode::GetGlobal.byte();
 
         let current_compiler_index = self.curr_compiler_index as usize;
 
-        let mut arg = self.resolve_local(current_compiler_index, &token);
+        let mut arg = self.resolve_local(current_compiler_index, token);
         if arg != usize::MAX {
             set_op = Opcode::SetLocal.byte();
             get_op = Opcode::GetLocal.byte();
         } else {
-            arg = self.resolve_upvalue(current_compiler_index, &token);
+            arg = self.resolve_upvalue(current_compiler_index, token);
             if arg != usize::MAX {
                 set_op = Opcode::SetUpvalue.byte();
                 get_op = Opcode::GetUpvalue.byte();
@@ -1002,7 +1008,7 @@ impl Parser {
         let compiler = &self.compilers[compiler_idx];
         for i in (0..compiler.locals.len()).rev() {
             let local = &compiler.locals[i];
-            if token.lexeme == local.name {
+            if  token.lexeme == local.name {
                 if local.depth == -1 {
                     self.error("Can't read a local variable in its own initializer.")
                 }
@@ -1061,10 +1067,31 @@ impl Parser {
         self.emit_bytes(Opcode::Class.byte(), name_constant);
         self.define_variable(name_constant);
 
-        let mut class_compiler = Some(Box::new(ClassCompiler::new(self.current_class.take())));
+        let mut class_compiler = Some(Box::new(RefCell::new(ClassCompiler::new(self.current_class.take()))));
         self.current_class = class_compiler;
 
-        self.named_variable(class_name, false);
+        if self.match_token_type(TokenType::Extend) {
+            self.consume(TokenType::Identifier, "Expect parent class name.");
+            self.variable(false);
+            if self.identifier_equals(&class_name, &self.previous()) {
+                self.error("Class cannot inherit from itself");
+            }
+
+            self.begin_scope();
+            let current_scope_depth = self.current_scope_depth();
+            self.compilers[self.curr_compiler_index as usize].add_local("super".to_string(), current_scope_depth);
+            self.define_variable(0);
+
+            self.named_variable(&class_name, false);
+            self.emit_byte(Opcode::Inherit.byte());
+            self.current_class
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow_mut().has_superclass = true;
+        }
+
+        self.named_variable(&class_name, false);
 
         self.consume(TokenType::LeftBrace, "Expect '{' before class body");
         while !self.check(TokenType::RightBrace) && !self.check(TokenType::Eof) {
@@ -1073,14 +1100,22 @@ impl Parser {
         self.consume(TokenType::RightBrace, "Expect '}' after class body.");
         self.emit_byte(Opcode::Pop.byte()); // pop class name
 
+        if self.current_class.as_ref().unwrap().borrow().has_superclass {
+            self.end_scope();
+        }
+
 
         self.current_class = self.enclosing_class()
     }
 
-    fn enclosing_class(&mut self) -> Option<Box<ClassCompiler>> {
+    fn identifier_equals(&self, token1: &Token, token2: &Token ) -> bool {
+        return token1.lexeme == token2.lexeme;
+    }
+
+    fn enclosing_class(&mut self) -> Option<Box<RefCell<ClassCompiler>>> {
         match self.current_class.take() {
-            Some(it) => {
-                match it.enclosing {
+            Some(mut it) => {
+                match it.into_inner().enclosing {
                     Some(it2) => { Some(Box::new(*it2)) }
                     None => None
                 }
@@ -1102,11 +1137,43 @@ impl Parser {
     }
 
     fn this(&mut self) {
-        if (self.current_class.is_none()) {
+        if self.current_class.is_none() {
             self.error("Can't use 'this' outside of class");
             return;
         }
         self.variable(false);
+    }
+    fn super_(&mut self) {
+
+        if self.current_class.is_none() {
+            self.error("Can't use 'super' outside of a class.");
+        } else if  !self.current_class.as_ref().unwrap().borrow().has_superclass {
+            self.error("Can't use 'super' in a class with no parent class");
+        }
+
+        self.consume(TokenType::Dot, "Expect '.' after super.");
+        self.consume(TokenType::Identifier, "Expect superclass method name");
+        let name = self.identifier_constant(&self.previous().lexeme);
+
+
+        let this_token = self.synthetic_this_token();
+        self.named_variable(&this_token, false);
+
+        if self.match_token_type(TokenType::LeftParen) {
+            let arg_count = self.argument_list();
+            let super_token = self.synthetic_super_token();
+            self.named_variable(&super_token, false);
+            self.emit_bytes(Opcode::SuperInvoke.byte(), name);
+            self.emit_byte(arg_count);
+        }
+    }
+
+    fn synthetic_super_token(&mut self) -> Token {
+        return Token::new(TokenType::Super, "super".to_string(), "super".to_string(), 0);
+    }
+
+    fn synthetic_this_token(&mut self) -> Token {
+        return Token::new(TokenType::This, "this".to_string(), "this".to_string(), 0);
     }
 }
 
