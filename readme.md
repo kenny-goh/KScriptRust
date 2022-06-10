@@ -68,6 +68,35 @@ for (var i = 0; i < 30; i = i + 1) {
   print fib(i);
 }
 
+// Object oriented programming
+
+class LinkedNode {
+   init(value, linkedNode) {
+     this.value = value;
+     this.next = linkedNode;
+   }
+}
+
+class LinkedList {
+  init() {
+    this.head = nil;
+    this.current = nil;
+    this.length = 0;
+  }
+  add(value) {
+    var node = LinkedNode(value, nil);
+    if (this.head == nil) {
+      this.head = node;
+      this.head.next = node;
+    }
+    else if (this.current != nil) {
+        this.current.next = node;
+    }
+    this.current = node;
+    this.length = this.length + 1;
+  }
+}
+
 ```
 For more examples, please refer to script subdirectory
 
