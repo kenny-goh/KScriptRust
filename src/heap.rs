@@ -31,15 +31,15 @@ pub struct Heap {
     /// Storage for strings.
     pub strings: HashMap<u32, Box<String>>,
     /// Storage for functions. Function is mutable, hence the use of RefCell
-    pub functions: Vec<RefCell<Function>>,
+    pub functions: Vec<RefCell<Function>>, // fixme: Should be boxed
     /// Storage for native functions
     pub native_fns: Vec<Box<NativeFn>>,
     /// Storage for closures
-    pub closures: Vec<RefCell<Closure>>,
+    pub closures: Vec<RefCell<Closure>>,   // fixme: should be boxed
     /// Storage for classes
-    pub classes: Vec<RefCell<Class>>,
+    pub classes: Vec<RefCell<Class>>,      // fixme: should be boxed
     /// Storage for class instances
-    pub instances: Vec<RefCell<Instance>>, // fixme: this should be a hash map with unique identifier for each instance and BOXED too
+    pub instances: Vec<RefCell<Instance>>, // fixme: this should be a hash map with unique identifier for each instance and boxed.
 }
 
 

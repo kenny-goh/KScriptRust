@@ -238,18 +238,11 @@ impl VM {
                 Opcode::GetProperty => {
                     let instance_idx = self.peek(0).as_instance_index();
                     let field_name_hash = self.read_string().as_string_hash();
-                    let field_name = self.heap.get_string(field_name_hash).clone();
-                    let class_idx = self.heap.get_instance(instance_idx).class_idx;
                     if self.heap.get_instance(instance_idx).fields.contains_key(&field_name_hash) {
                         let value = self.heap.get_instance(instance_idx).fields.get(&field_name_hash).unwrap().clone();
                         self.fpop(); // instance
                         self.push(value);
                     }
-                    // else if !self.bind_method(class_idx, field_name_hash) {
-                    //     let error_text = format!("Undefined property {}", field_name);
-                    //     self.runtime_error( &error_text );
-                    //     return RunResult::RuntimeError;
-                    // }
                 }
                 Opcode::SetProperty => {
                     if !self.peek(1).is_instance_index() {
