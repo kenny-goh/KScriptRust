@@ -202,7 +202,6 @@ Python ~ 17s
 I will optimize KScriptRust once I have fully implemented object-oriented features and completed the garbage collector.
 
 ## Todos
-- Classes
 - GC (Partially working, will need to add for classes)
 - let operator (immutable variable)
 - lambda function
