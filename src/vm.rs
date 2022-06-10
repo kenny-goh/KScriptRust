@@ -6,7 +6,7 @@ use fnv::{ FnvHashMap};
 
 use crate::{Heap, Object, Opcode, Value};
 use crate::callframe::CallFrame;
-use crate::class::{BoundMethod, Class, Instance};
+use crate::class::{Class, Instance};
 use crate::closure::{Closure, ObjUpvalue};
 use crate::function::Function;
 use crate::nativefn::{append_file_native, clock_native, NativeFn, NativeValue, str_native, write_file_native};
@@ -245,11 +245,11 @@ impl VM {
                         self.fpop(); // instance
                         self.push(value);
                     }
-                    else if !self.bind_method(class_idx, field_name_hash) {
-                        let error_text = format!("Undefined property {}", field_name);
-                        self.runtime_error( &error_text );
-                        return RunResult::RuntimeError;
-                    }
+                    // else if !self.bind_method(class_idx, field_name_hash) {
+                    //     let error_text = format!("Undefined property {}", field_name);
+                    //     self.runtime_error( &error_text );
+                    //     return RunResult::RuntimeError;
+                    // }
                 }
                 Opcode::SetProperty => {
                     if !self.peek(1).is_instance_index() {
@@ -407,6 +407,22 @@ impl VM {
                     // Cached the function ptr from the current callstack
                     self.curr_func_idx = self.heap.get_closure(curr_frame.closure_idx).func_idx;
                 }
+                Opcode::SuperInvoke => {
+                    let method_name_hash = self.read_string().as_string_hash();
+                    let arg_count = self.read_byte() as usize;
+                    let superclass_idx = self.pop().as_class_index();
+                    let curr_callstack = self.callstack.len()-1;
+                    // Store current ip
+                    self.callstack.get_mut(curr_callstack).unwrap().ip = self.ip;
+                    if !self.invoke_from_class(superclass_idx, method_name_hash, arg_count) {
+                        return RunResult::RuntimeError;
+                    }
+                    let curr_frame = self.callstack.last().unwrap();
+                    self.ip = curr_frame.ip;
+                    // Cached the function ptr from the current callstack
+                    self.curr_func_idx = self.heap.get_closure(curr_frame.closure_idx).func_idx;
+
+                }
                 Opcode::Closure => {
                     log!("OP CLOSURE");
                     let func_idx = self.read_constant().as_function_index();
@@ -481,6 +497,20 @@ impl VM {
                     let class = Class::new(class_name.to_string());
                     let class_idx = self.heap.alloc_class(class);
                     self.push(Value::Obj(Object::ClassIndex(class_idx)));
+                }
+                Opcode::Inherit => {
+                    log!("OP INHERIT");
+                    let superclass = self.peek(1);
+                    if !superclass.is_class_index() {
+                        self.runtime_error("Superclass must be a class.");
+                        return RunResult::RuntimeError;
+                    }
+                    let subclass = self.peek(0).as_class_index();
+                    let methods = self.heap.get_class(superclass.as_class_index()).methods.clone();
+                    for (key, value) in methods.into_iter() {
+                        self.heap.get_mut_class(subclass).methods.insert(key, value);
+                    }
+                    self.pop();
                 }
                 Opcode::Method => {
                     log!("OP METHOD");
@@ -713,13 +743,14 @@ impl VM {
     fn call_value(&mut self,
                   callee: Value,
                   arg_count: usize)->bool {
-        if callee.is_bound_method_index() {
-            let bound_idx = callee.as_bound_method_index();
-            self.stack[self.stack_top - arg_count - 1] = self.heap.get_bound_method(bound_idx).receiver;
-            let closure_idx = self.heap.get_bound_method(bound_idx).closure_idx;
-            return self.call(closure_idx, arg_count);
-        }
-        else if callee.is_closure_index() {
+        // if callee.is_bound_method_index() {
+        //     let bound_idx = callee.as_bound_method_index();
+        //     self.stack[self.stack_top - arg_count - 1] = self.heap.get_bound_method(bound_idx).receiver;
+        //     let closure_idx = self.heap.get_bound_method(bound_idx).closure_idx;
+        //     return self.call(closure_idx, arg_count);
+        // }
+        // else
+        if callee.is_closure_index() {
             let closure_idx = callee.as_closure_index();
             return self.call(closure_idx, arg_count);
         } else if callee.is_class_index() {
@@ -731,7 +762,7 @@ impl VM {
             if self.heap.get_class(class_idx).methods.contains_key(&self.init_string_hash) {
                 let initializer = self.heap.get_mut_class(class_idx).methods.get(&self.init_string_hash).unwrap().clone();
                 return self.call(initializer.as_closure_index(),arg_count);
-            } else if (arg_count != 0) {
+            } else if arg_count != 0 {
                 let format = format!("Expect 0 arguments but got {}", arg_count);
                 self.runtime_error(&format);
                 return false;
@@ -911,20 +942,6 @@ impl VM {
         self.pop();
     }
 
-    fn bind_method(&mut self, class_idx: usize, name_hash: u32) -> bool {
-        if !self.heap.get_class(class_idx).methods.contains_key(&name_hash) {
-            let name = self.heap.get_string(name_hash);
-            let error_text = format!("Undefined property {}", name);
-            self.runtime_error(&error_text);
-            return false
-        }
-        let closure_idx = self.heap.get_class(class_idx).methods.get(&name_hash).unwrap().as_closure_index();
-        let bound_method_idx = self.heap.alloc_bound_method(
-            BoundMethod::new(*self.peek(0), closure_idx));
-        self.pop();
-        self.push(Value::Obj(Object::BoundMethodIndex(bound_method_idx)));
-        return true;
-    }
     fn invoke(&mut self, method_name_hash: u32, arg_count: usize) -> bool {
         let receiver = self.peek(arg_count);
         if !receiver.is_instance_index() {

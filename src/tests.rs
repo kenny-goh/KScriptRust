@@ -712,6 +712,76 @@ fn test_class_instance_invoke() {
     }
 }
 
+#[test]
+#[serial]
+fn test_class_inheritance_child_can_call_parents_method() {
+    let code = r#"
+        class A {
+           methodA() {
+             return 100;
+           }
+        }
+        class B extend A {
+        }
+        var b = B();
+        var _result = b.methodA();
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("100", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+#[test]
+#[serial]
+fn test_class_inheritance_child_can_override_parents_method() {
+    let code = r#"
+        class A {
+           methodA() {
+             return 100;
+           }
+        }
+        class B extend A {
+           methodA() {
+             return 200;
+           }
+        }
+        var b = B();
+        var _result = b.methodA();
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("200", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+#[test]
+#[serial]
+fn test_class_inheritance_child_can_use_super() {
+    let code = r#"
+        class A {
+           methodA() {
+             return 100;
+           }
+        }
+        class B extend A {
+           methodA() {
+             return 200 + super.methodA();
+           }
+        }
+        var b = B();
+        var _result = b.methodA();
+    "#.to_string();
+    let output = run_code(&code);
+    match output {
+        Ok(str) => assert_eq!("300", str),
+        Err(_) => panic!("Failed")
+    }
+}
+
+
 
 // todo: garbage collection tests
 

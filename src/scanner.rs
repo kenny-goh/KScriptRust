@@ -38,6 +38,7 @@ impl Scanner {
                 ("true".to_string(), TokenType::True),
                 ("var".to_string(), TokenType::Var),
                 ("while".to_string(), TokenType::While),
+                ("extend".to_string(), TokenType::Extend),
                 ("return".to_string(), TokenType::Return)
             ]),
         }

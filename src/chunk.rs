@@ -42,7 +42,9 @@ pub enum Opcode {
     GetProperty = 30,
     Method = 31,
     Invoke = 32,
-    Return = 33,
+    Inherit = 33,
+    SuperInvoke = 34,
+    Return = 35,
 }
 
 impl Opcode {
